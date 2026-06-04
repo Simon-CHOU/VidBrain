@@ -13,7 +13,7 @@ import re
 from logging.handlers import RotatingFileHandler
 
 _SENSITIVE_PATTERN = re.compile(
-    r"(?i)(api_key|api_secret|access_token|secret_key|sk[_-]?\w*)\s*[=:]\s*['\"]?\S+?['\"]?"
+    r"(?i)(api_key|api_secret|access_token|secret_key)\s*[=:]\s*['\"]?\S+?['\"]?"
 )
 
 

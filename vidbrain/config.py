@@ -54,3 +54,7 @@ class PipelineConfig:
     cpu_threads: int = field(default_factory=lambda: max(1, multiprocessing.cpu_count() - 1))
     once: bool = False
     limit: int = 0  # 0 = 不限制
+    batch_size: int = 5  # 每批处理的视频数
+    interval_seconds: int = 0  # 持续模式的间隔秒数（0 = 不启用）
+    classify_only: bool = False  # 仅分类，不处理
+    refine: bool = False  # 执行知识库精炼

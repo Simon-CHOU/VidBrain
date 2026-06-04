@@ -1,7 +1,7 @@
 """
 Watchdog 文件监听模块。
 
-监听本地目录中的 .mp4 文件写入事件（递归子目录），异步提交到线程池处理。
+监听本地目录中的 .mp4 文件写入事件（递归子目录），分类后异步提交处理。
 
 重要约束：程序永远不得修改 input_dir 下的任何文件。
 """
@@ -16,6 +16,7 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 from vidbrain.asr_engine import ASREngine
+from vidbrain.classifier import classify_video
 from vidbrain.config import LLMConfig, PipelineConfig
 from vidbrain.db import DatabaseManager
 from vidbrain.pipeline import process_pipeline
@@ -53,6 +54,16 @@ class VideoFileHandler(FileSystemEventHandler):
 
         logger.info("[Watcher] 检测到新视频: %s (in %s)", video_name, event.src_path)
         self._db.create_task(video_id, video_name, event.src_path)
+
+        # 分类
+        cat, reason = classify_video(video_name)
+        self._db.classify_task(video_id, cat, reason)
+        logger.info("[Watcher] 分类: %s -> %s (%s)", video_name, cat, reason)
+
+        # 仅处理 tech 类视频
+        if cat != "tech":
+            logger.info("[Watcher] 跳过非技术视频: %s", video_name)
+            return
 
         # 异步提交到线程池，不阻塞监听器
         self._executor.submit(
