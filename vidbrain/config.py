@@ -6,13 +6,24 @@
 - 不写入任何文件（不在 .env、不在日志、不在源码中）
 - 日志中不得输出 API Key 的任何部分
 - LLM 配置不可通过 CLI 参数覆盖（防止意外泄露）
+
+自包含设计：
+- 所有运行时产物（数据库、日志、模型缓存）均在项目目录内
+- 项目外路径仅限：I:/web-videos（只读输入）、--vault-dir（知识库输出）
 """
 
 from __future__ import annotations
 
 import os
 import multiprocessing
+from pathlib import Path
 from dataclasses import dataclass, field
+
+# ── 确保模型缓存位于项目内部 ──
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_MODEL_CACHE = str(_PROJECT_ROOT / ".model_cache")
+os.environ.setdefault("HF_HOME", _MODEL_CACHE)
+os.environ.setdefault("HF_HUB_CACHE", _MODEL_CACHE)
 
 
 @dataclass

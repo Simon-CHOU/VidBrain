@@ -15,6 +15,12 @@ venv/
 # Logs
 logs/
 
+# Model cache (downloaded Whisper models)
+.model_cache/
+
+# Temporary test directories
+test_vault/
+
 # Environment files (if any)
 .env
 .env.local

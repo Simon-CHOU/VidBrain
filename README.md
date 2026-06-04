@@ -58,22 +58,33 @@ python -m vidbrain.main --vault-dir D:\path\to\obsidian\vault --once
 | `--cpu-threads` | 自动检测 | ASR 使用的 CPU 线程数 |
 | `--once` | false | 处理现有文件后退出（不持续监听） |
 
-## 项目结构
+## 项目结构（自包含设计）
 
 ```
-VidBrain/
-├── vidbrain/           # 主包
-│   ├── config.py      # 配置管理
-│   ├── logger.py      # 日志（自动脱敏）
-│   ├── db.py          # SQLite 数据库
-│   ├── asr_engine.py  # faster-whisper 引擎
-│   ├── agent_graph.py # LangGraph 工作流
-│   ├── pipeline.py    # 管线调度
-│   ├── watcher.py     # 文件监听
-│   └── main.py        # 主入口
-├── logs/              # 日志文件
-└── pipeline.db        # SQLite 数据库
+VidBrain/                         # ← 所有运行时产物都在此目录内
+├── vidbrain/                     # 主包（源码）
+│   ├── config.py                # 配置管理
+│   ├── classifier.py            # 视频文件名分类器
+│   ├── logger.py                # 日志（自动脱敏）
+│   ├── db.py                    # SQLite 数据库
+│   ├── asr_engine.py            # faster-whisper 引擎
+│   ├── agent_graph.py           # LangGraph 工作流
+│   ├── pipeline.py              # 管线调度
+│   ├── watcher.py               # 文件监听
+│   └── main.py                  # 主入口
+│
+├── .model_cache/                # Whisper 模型缓存（自动下载，已 gitignore）
+├── logs/                        # 日志文件（自动创建，已 gitignore）
+├── pipeline.db                  # SQLite 数据库（自动创建，已 gitignore）
+│
+├── .gitignore
+├── pyproject.toml
+└── README.md
 ```
+
+**项目外路径**（用户指定，程序不在此创建任何文件）：
+- `I:\web-videos` → 只读输入（永不修改）
+- `--vault-dir`   → 只写输出（知识库）
 
 ## 重要约束
 
