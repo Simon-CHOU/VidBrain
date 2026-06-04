@@ -1,0 +1,56 @@
+"""
+配置管理模块。
+
+安全规则（重要）：
+- DEEPSEEK_API_KEY 和 DEEPSEEK_BASE_URL 从 Windows 系统环境变量读取
+- 不写入任何文件（不在 .env、不在日志、不在源码中）
+- 日志中不得输出 API Key 的任何部分
+- LLM 配置不可通过 CLI 参数覆盖（防止意外泄露）
+"""
+
+from __future__ import annotations
+
+import os
+import multiprocessing
+from dataclasses import dataclass, field
+
+
+@dataclass
+class LLMConfig:
+    """LLM 配置，仅从系统环境变量读取。"""
+
+    api_key: str = field(init=False)
+    base_url: str = field(init=False)
+    model: str = "deepseek-v4-flash"
+
+    def __post_init__(self) -> None:
+        key = os.environ.get("DEEPSEEK_API_KEY", "")
+        url = os.environ.get("DEEPSEEK_BASE_URL", "")
+        if not key:
+            raise OSError(
+                "环境变量 DEEPSEEK_API_KEY 未设置。"
+                "请通过 Windows 系统环境变量设置。"
+            )
+        if not url:
+            raise OSError(
+                "环境变量 DEEPSEEK_BASE_URL 未设置。"
+                "请通过 Windows 系统环境变量设置。"
+            )
+        self.api_key = key
+        self.base_url = url
+
+
+@dataclass
+class PipelineConfig:
+    """管线配置，通过 CLI 参数传入。
+
+    重要约束：程序永远不得修改 input_dir 下的任何文件（增删改）。
+    """
+
+    input_dir: str = r"I:\web-videos"
+    vault_dir: str = ""
+    db_path: str = "./pipeline.db"
+    model_size: str = "large-v3"
+    cpu_threads: int = field(default_factory=lambda: max(1, multiprocessing.cpu_count() - 1))
+    once: bool = False
+    limit: int = 0  # 0 = 不限制

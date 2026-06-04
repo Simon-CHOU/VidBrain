@@ -1,0 +1,11 @@
+[project]
+name = "vidbrain"
+version = "0.1.0"
+description = "本地视频 ASR 提取与云端 Agent 自迭代 Obsidian 知识库系统"
+requires-python = ">=3.10"
+dependencies = [
+    "faster-whisper>=1.1.0",
+    "watchdog>=6.0.0",
+    "openai>=1.55.0",
+    "langgraph>=0.2.0",
+]
