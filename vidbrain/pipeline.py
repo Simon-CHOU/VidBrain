@@ -16,7 +16,7 @@ from pathlib import Path
 
 from vidbrain.agent_graph import AgentState, create_agent_graph
 from vidbrain.asr_engine import ASREngine
-from vidbrain.config import LLMConfig, PipelineConfig
+from vidbrain.config import EmbeddingConfig, LLMConfig, PipelineConfig
 from vidbrain.db import DatabaseManager
 from vidbrain.drafts import write_draft
 from vidbrain.updater import check_and_update, check_related_notes
@@ -87,6 +87,8 @@ def process_pipeline(
     asr_engine: ASREngine,
     llm_config: LLMConfig,
     cfg: PipelineConfig,
+    embedding_config: EmbeddingConfig | None = None,
+    embedding_store = None,
 ) -> None:
     """执行完整的视频处理管线。"""
     logger.info("[Pipeline] 开始处理: %s", video_name)
@@ -123,8 +125,19 @@ def process_pipeline(
                         feedback_signals["edited_count"], feedback_signals["reviewed_count"])
 
         # Step 2.5: 检测关联笔记
+        # 若 embedding 启用，初始化 store 并使用 embedding 检索
+        embed_store_for_check = embedding_store
+        embed_engine = None
+        if cfg.embedding_enabled and embedding_config is not None:
+            from vidbrain.embedding import EmbeddingEngine, EmbeddingStore
+            if embed_store_for_check is None:
+                embed_store_for_check = EmbeddingStore(str(vault_path))
+            embed_engine = EmbeddingEngine(embedding_config)
         related_notes_list = check_related_notes(
-            str(vault_path), video_name, raw_text, existing_notes
+            str(vault_path), video_name, raw_text, existing_notes,
+            embedding_enabled=cfg.embedding_enabled,
+            embedding_store=embed_store_for_check,
+            embedding_engine=embed_engine,
         )
 
         # Step 3: 运行 Agent
@@ -173,6 +186,22 @@ def process_pipeline(
             )
             db.update_status(video_id, "SUCCESS")
             logger.info("[Pipeline] 完成! %s -> %s", video_name, output_path)
+
+            # 增量缓存新笔记的 embedding
+            if cfg.embedding_enabled and embed_store_for_check is not None and embed_engine is not None:
+                try:
+                    output_stem = Path(output_file_name).stem
+                    note_text = front_matter + final_state["final_markdown"]
+                    vec = embed_engine.embed(note_text[:1000])
+                    note_mtime = output_path.stat().st_mtime
+                    embed_store_for_check.set_vector(
+                        output_stem, vec,
+                        datetime.fromtimestamp(note_mtime).strftime('%Y-%m-%d %H:%M:%S'),
+                    )
+                    embed_store_for_check.save()
+                    logger.info("[Pipeline] 已缓存 embedding: %s", output_stem)
+                except Exception as e:
+                    logger.warning("[Pipeline] embedding 缓存失败: %s", str(e))
 
             # Step 4.5: 增量内容更新 (仅全自动模式)
             if not cfg.semi:

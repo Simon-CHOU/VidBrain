@@ -61,8 +61,8 @@ class PipelineConfig:
     input_dir: str = r"I:\web-videos"
     vault_dir: str = ""
     db_path: str = "./pipeline.db"
-    model_size: str = "large-v3"
-    cpu_threads: int = field(default_factory=lambda: max(1, multiprocessing.cpu_count() - 1))
+    model_size: str = "small"  # 桌面友好型默认值：small ~500MB (可覆盖为 large-v3)
+    cpu_threads: int = field(default_factory=lambda: max(1, min(2, multiprocessing.cpu_count() // 4)))  # 桌面友好：仅用少量核心
     once: bool = False
     limit: int = 0  # 0 = 不限制
     batch_size: int = 5  # 每批处理的视频数
@@ -75,3 +75,29 @@ class PipelineConfig:
     semi: bool = False  # 半自动模式（启用所有人工审核门禁）
     review_drafts: bool = False  # 进入草稿审核模式
     review_classifications: bool = False  # 进入分类审核模式
+    priority_level: str = "below_normal"  # 进程优先级: normal|below_normal|idle
+    video_cooldown: int = 0  # 视频间冷却秒数（0=不启用，长时运行推荐 30）
+    embedding_enabled: bool = False  # 启用 embedding 语义检索和聚类
+
+
+@dataclass
+class EmbeddingConfig:
+    """Embedding API 配置，仅从系统环境变量读取。"""
+
+    api_key: str = field(init=False)
+    base_url: str = field(init=False)
+    model: str = "text-embedding-v4"
+
+    def __post_init__(self) -> None:
+        key = os.environ.get("DASHSCOPE_API_KEY", "")
+        url = os.environ.get(
+            "DASHSCOPE_BASE_URL",
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        )
+        if not key:
+            raise OSError(
+                "环境变量 DASHSCOPE_API_KEY 未设置。"
+                "请通过 Windows 系统环境变量设置。"
+            )
+        self.api_key = key
+        self.base_url = url

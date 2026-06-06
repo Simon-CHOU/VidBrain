@@ -20,6 +20,56 @@ from vidbrain.config import LLMConfig
 logger = logging.getLogger("vidbrain.updater")
 
 
+def _check_related_embedding(
+    vault_path: str,
+    new_content: str,
+    embedding_store,
+    embedding_engine,
+) -> list[dict]:
+    """使用 embedding 检索关联笔记。"""
+    if not new_content or len(new_content) < 50:
+        return []
+    if not embedding_store.all_stems():
+        return []
+
+    # 嵌入新笔记内容（前 1000 字符）
+    query_vec = embedding_engine.embed(new_content[:1000])
+    # 检索 top-5 最相似笔记
+    similar = embedding_store.find_similar(query_vec, top_k=5)
+    # 过滤相似度 < 0.5
+    similar = [(s, sim) for s, sim in similar if sim >= 0.5]
+
+    if not similar:
+        return []
+
+    vp = Path(vault_path)
+    results: list[dict] = []
+    for stem, sim in similar[:3]:
+        note_file = vp / f"{stem}.md"
+        content_preview = ""
+        try:
+            if note_file.exists():
+                raw = note_file.read_text(encoding="utf-8", errors="replace")
+                if raw.startswith("---"):
+                    parts = raw.split("---", 2)
+                    content_preview = (parts[2] if len(parts) >= 3 else raw)[:400].strip()
+                else:
+                    content_preview = raw[:400].strip()
+        except OSError:
+            pass
+        results.append({
+            "name": stem,
+            "stem": stem,
+            "match_terms": [],
+            "score": round(sim, 3),
+            "content_preview": content_preview,
+        })
+
+    logger.info("[Updater Embedding] 检索到 %d 篇关联笔记: %s",
+                len(results), [r["stem"] for r in results])
+    return results
+
+
 def _extract_key_terms(content: str) -> list[str]:
     """从内容中提取关键术语。
 
@@ -82,6 +132,9 @@ def check_related_notes(
     new_note_name: str,
     new_content: str,
     existing_notes: list[str],
+    embedding_enabled: bool = False,
+    embedding_store = None,
+    embedding_engine = None,
 ) -> list[dict]:
     """检测新笔记与已有笔记的关联。
 
@@ -90,10 +143,20 @@ def check_related_notes(
         new_note_name: 新笔记名
         new_content: 新笔记内容
         existing_notes: 已有笔记 stem 列表
+        embedding_enabled: 是否启用 embedding 检索
+        embedding_store: EmbeddingStore 实例
+        embedding_engine: EmbeddingEngine 实例
 
     Returns:
         关联笔记列表，每项包含 name, stem, match_terms, content_preview
     """
+    # embedding 路径
+    if embedding_enabled and embedding_store is not None and embedding_engine is not None:
+        return _check_related_embedding(
+            vault_path, new_content, embedding_store, embedding_engine,
+        )
+
+    # 原始子串匹配路径
     terms = _extract_key_terms(new_content)
     logger.debug("提取到 %d 个关键术语: %s", len(terms), terms)
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 from watchdog.events import FileSystemEventHandler
@@ -22,6 +23,11 @@ from vidbrain.db import DatabaseManager
 from vidbrain.pipeline import process_pipeline
 
 logger = logging.getLogger("vidbrain.watcher")
+
+# ── Watchdog 速率限制常量 ──
+_DEBOUNCE_SECONDS = 5.0       # 同一文件的事件去抖窗口
+_MIN_TASK_INTERVAL = 2.0      # 连续提交的最小间隔
+_MAX_QUEUE_SIZE = 20          # 队列积压上限
 
 
 class VideoFileHandler(FileSystemEventHandler):
@@ -42,10 +48,42 @@ class VideoFileHandler(FileSystemEventHandler):
         self._cfg = cfg
         self._executor = executor
         self._input_dir = input_dir
+        # 去抖与速率限制状态
+        self._last_event_time: dict[str, float] = {}
+        self._last_submit_time: float = 0.0
+
+    def _should_throttle(self, file_path: str) -> bool:
+        """检查是否应跳过当前事件（去抖 + 速率限制）。"""
+        now = time.time()
+        # 同一文件去抖
+        last = self._last_event_time.get(file_path, 0)
+        if now - last < _DEBOUNCE_SECONDS:
+            return True
+        self._last_event_time[file_path] = now
+        # 连续提交最小间隔
+        if now - self._last_submit_time < _MIN_TASK_INTERVAL:
+            return True
+        return False
+
+    def _check_queue_backpressure(self) -> bool:
+        """检查任务队列是否已积压过多。"""
+        try:
+            qsize = self._executor._work_queue.qsize()
+        except Exception:
+            return False
+        if qsize >= _MAX_QUEUE_SIZE:
+            logger.warning("[Watcher] 任务队列积压 %d 个 (上限 %d)，暂停接收新任务",
+                           qsize, _MAX_QUEUE_SIZE)
+            return True
+        return False
 
     def on_closed(self, event) -> None:
         """文件写入完成并关闭句柄时触发。"""
         if event.is_directory or not event.src_path.lower().endswith(".mp4"):
+            return
+
+        # 去抖 + 连续提交间隔检查
+        if self._should_throttle(event.src_path):
             return
 
         # 使用完整路径生成唯一 ID，避免不同子目录中同名文件冲突
@@ -65,7 +103,12 @@ class VideoFileHandler(FileSystemEventHandler):
             logger.info("[Watcher] 跳过非技术视频: %s", video_name)
             return
 
+        # 队列积压保护
+        if self._check_queue_backpressure():
+            return
+
         # 异步提交到线程池，不阻塞监听器
+        self._last_submit_time = time.time()
         self._executor.submit(
             process_pipeline,
             video_id,

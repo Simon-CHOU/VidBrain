@@ -195,9 +195,35 @@ def apply_suggestions(
 
 
 def _extract_topics(
+    client: OpenAI,
+    model: str,
+    notes: list[dict[str, Any]],
+    embedding_store = None,
+    embedding_engine = None,
+) -> list[dict[str, Any]]:
+    """分析所有笔记，提取主题分类。
+
+    当 embedding_store 中有足够缓存时，使用 k-means 聚类 + LLM 命名。
+    否则回退到纯 LLM 基于标题分组。
+    """
+    # embedding 聚类路径
+    if embedding_store is not None and embedding_engine is not None:
+        cached_count = sum(1 for n in notes if embedding_store.get_vector(n["name"]) is not None)
+        coverage = cached_count / len(notes) if notes else 0
+        if coverage >= 0.5:
+            return _extract_topics_with_embedding(
+                client, model, notes, embedding_store, embedding_engine,
+            )
+        logger.info("嵌入缓存覆盖率 %.0f%% (< 50%%)，回退到 LLM 标题分组", coverage * 100)
+
+    # 原始 LLM 路径
+    return _extract_topics_llm(client, model, notes)
+
+
+def _extract_topics_llm(
     client: OpenAI, model: str, notes: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    """分析所有笔记标题，提取主题分类。"""
+    """分析所有笔记标题，提取主题分类（纯 LLM）。"""
     titles = [n["name"] for n in notes]
     titles_str = "\n".join(f"- {t}" for t in titles)
 
@@ -242,6 +268,105 @@ def _extract_topics(
                 return []
 
 
+def _extract_topics_with_embedding(
+    client: OpenAI,
+    model: str,
+    notes: list[dict[str, Any]],
+    embedding_store,
+    embedding_engine,
+) -> list[dict[str, Any]]:
+    """使用 embedding k-means 聚类 + LLM 命名提取主题。"""
+    from vidbrain.embedding import _kmeans
+
+    if len(notes) < 3:
+        # 笔记太少，不聚类，全部归为一个主题
+        topic_name = _name_topic_from_notes(client, model, notes)
+        return [{"topic": topic_name, "notes": [n["name"] for n in notes], "description": ""}]
+
+    # 获取所有笔记的嵌入向量（缺失的批量计算）
+    vectors: list[list[float]] = []
+    valid_notes: list[dict[str, Any]] = []
+    missing: list[dict[str, Any]] = []
+
+    for n in notes:
+        vec = embedding_store.get_vector(n["name"])
+        if vec is not None:
+            vectors.append(vec)
+            valid_notes.append(n)
+        else:
+            missing.append(n)
+
+    # 批量计算缺失的嵌入
+    if missing:
+        logger.info("批量计算 %d 篇笔记的嵌入...", len(missing))
+        contents = [m["content"][:800] for m in missing]
+        new_vecs = embedding_engine.embed_batch(contents)
+        for m, vec in zip(missing, new_vecs):
+            embedding_store.set_vector(m["name"], vec, "")
+            vectors.append(vec)
+            valid_notes.append(m)
+        embedding_store.save()
+
+    # k-means 聚类
+    k = min(8, max(3, len(valid_notes) // 5))
+    logger.info("k-means 聚类: k=%d, 笔记数=%d", k, len(valid_notes))
+    labels = _kmeans(vectors, k)
+
+    # 将笔记按簇分组
+    clusters: dict[int, list[dict[str, Any]]] = {i: [] for i in range(k)}
+    for i, lbl in enumerate(labels):
+        if lbl < k:
+            clusters[lbl].append(valid_notes[i])
+
+    # LLM 为每个簇命名
+    topics: list[dict[str, Any]] = []
+    for c_idx, c_notes in clusters.items():
+        if not c_notes:
+            continue
+        topic_name = _name_topic_from_notes(client, model, c_notes)
+        topics.append({
+            "topic": topic_name,
+            "notes": [n["name"] for n in c_notes],
+            "description": f"自动聚类 (簇 {c_idx + 1}, {len(c_notes)} 篇笔记)",
+        })
+
+    logger.info("embedding 聚类完成: %d 个主题", len(topics))
+    return topics
+
+
+def _name_topic_from_notes(
+    client: OpenAI, model: str, notes: list[dict[str, Any]]
+) -> str:
+    """用 LLM 为一组笔记生成主题名。"""
+    names = [n["name"] for n in notes]
+    names_str = ", ".join(names[:10])
+
+    prompt = (
+        "以下是一组内容相关的 Obsidian 笔记标题。请提取 2-5 个字的简短主题名。\n"
+        f"笔记: {names_str}\n"
+        "只输出主题名，不要加引号或任何额外内容。"
+    )
+
+    for attempt in range(1, 4):
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=20,
+                timeout=30,
+            )
+            name = (response.choices[0].message.content or "").strip().rstrip("。，.")
+            if not name:
+                name = "未命名"
+            return name
+        except Exception as e:
+            logger.warning("主题命名失败 (尝试 %d/3): %s", attempt, str(e))
+            if attempt < 3:
+                time.sleep(2 ** (attempt - 1))
+    return "未命名"
+
+
 def generate_moc_files(vault_path: str, topics: list[dict[str, Any]]) -> int:
     """为主题生成 MOC 索引笔记文件。"""
     vp = Path(vault_path)
@@ -278,7 +403,12 @@ def generate_moc_files(vault_path: str, topics: list[dict[str, Any]]) -> int:
     return created
 
 
-def refine_vault(vault_path: str, llm_config: LLMConfig) -> None:
+def refine_vault(
+    vault_path: str,
+    llm_config: LLMConfig,
+    embedding_store = None,
+    embedding_engine = None,
+) -> None:
     """知识库精炼主入口。
 
     执行流程：
@@ -286,6 +416,12 @@ def refine_vault(vault_path: str, llm_config: LLMConfig) -> None:
     2. 分析双链关系，找出孤立笔记
     3. 批量补充孤立笔记的双链
     4. 生成 MOC 主题索引
+
+    Args:
+        vault_path: Vault 根目录路径
+        llm_config: LLM 配置
+        embedding_store: EmbeddingStore 实例（可选）
+        embedding_engine: EmbeddingEngine 实例（可选）
     """
     logger.info("=" * 50)
     logger.info("知识库精炼开始")
@@ -334,7 +470,11 @@ def refine_vault(vault_path: str, llm_config: LLMConfig) -> None:
     # Step 4: 生成 MOC
     logger.info("阶段 2/2: 生成 MOC 主题索引...")
     client = OpenAI(api_key=llm_config.api_key, base_url=llm_config.base_url)
-    topics = _extract_topics(client, llm_config.model, notes)
+    topics = _extract_topics(
+        client, llm_config.model, notes,
+        embedding_store=embedding_store,
+        embedding_engine=embedding_engine,
+    )
     if topics:
         created = generate_moc_files(vault_path, topics)
         logger.info("MOC 生成完成: 新建 %d 个索引文件", created)

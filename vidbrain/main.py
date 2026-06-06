@@ -134,6 +134,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="进入分类审核模式",
     )
+    parser.add_argument("--priority", default="below_normal", choices=["normal", "below_normal", "idle"],
+        help="进程优先级（默认: below_normal）")
+    parser.add_argument("--video-cooldown", type=int, default=0,
+        help="视频间冷却秒数（默认: 0，长时运行推荐 30）")
+    parser.add_argument("--embedding", action="store_true", default=False,
+        help="启用 embedding 语义检索和 MOC 聚类（需设置 DASHSCOPE_API_KEY 环境变量）")
     return parser.parse_args(argv)
 
 
@@ -164,6 +170,9 @@ def build_config(args: argparse.Namespace) -> PipelineConfig:
         semi=args.semi,
         review_drafts=args.review_drafts,
         review_classifications=args.review_classifications,
+        priority_level=args.priority,
+        video_cooldown=args.video_cooldown,
+        embedding_enabled=args.embedding,
     )
 
 
@@ -222,11 +231,31 @@ def print_classification_summary(db: DatabaseManager) -> None:
     )
 
 
+def _init_embedding():
+    """初始化 EmbeddingConfig。"""
+    from vidbrain.config import EmbeddingConfig
+    return EmbeddingConfig()
+
+
+def _init_embedding_store(vault_path: str):
+    """初始化 EmbeddingStore。"""
+    from vidbrain.embedding import EmbeddingStore
+    return EmbeddingStore(vault_path)
+
+
+def _init_embedding_engine(emb_config):
+    """初始化 EmbeddingEngine。"""
+    from vidbrain.embedding import EmbeddingEngine
+    return EmbeddingEngine(emb_config)
+
+
 def process_batch(
     db: DatabaseManager,
     asr_engine: ASREngine,
     llm_config: LLMConfig,
     cfg: PipelineConfig,
+    emb_config = None,
+    emb_store = None,
 ) -> int:
     """处理一批技术视频（含自动重试失败的），返回处理数量。"""
     # 先处理可重试的失败任务
@@ -238,6 +267,9 @@ def process_batch(
                 task["id"], task["video_name"], task["file_path"],
                 db, asr_engine, llm_config, cfg,
             )
+            if cfg.video_cooldown > 0:
+                from vidbrain.throttle import cooldown_sleep
+                cooldown_sleep(cfg.video_cooldown, f"视频 {task['video_name']} 处理完成")
 
     # 然后处理新的 tech 视频
     tasks = db.get_pending_tech_tasks(limit=cfg.batch_size)
@@ -250,7 +282,12 @@ def process_batch(
         process_pipeline(
             task["id"], task["video_name"], task["file_path"],
             db, asr_engine, llm_config, cfg,
+            embedding_config=emb_config,
+            embedding_store=emb_store,
         )
+        if cfg.video_cooldown > 0:
+            from vidbrain.throttle import cooldown_sleep
+            cooldown_sleep(cfg.video_cooldown, f"视频 {task['video_name']} 处理完成")
     return len(tasks) + len(retryable)
 
 
@@ -267,7 +304,11 @@ def retry_failed_tasks(db: DatabaseManager) -> int:
     return len(retryable)
 
 
-def run_refine(cfg: PipelineConfig) -> None:
+def run_refine(
+    cfg: PipelineConfig,
+    embedding_store = None,
+    embedding_engine = None,
+) -> None:
     """执行知识库精炼模式。"""
     from vidbrain.refiner import refine_vault
     vault_path = Path(cfg.vault_dir)
@@ -275,7 +316,9 @@ def run_refine(cfg: PipelineConfig) -> None:
         logger.error("Vault 目录不存在: %s", cfg.vault_dir)
         return
     llm_config = LLMConfig()
-    refine_vault(str(vault_path), llm_config)
+    refine_vault(str(vault_path), llm_config,
+                 embedding_store=embedding_store,
+                 embedding_engine=embedding_engine)
 
 
 def _prompt_choice(prompt: str, options: str) -> str:
@@ -452,9 +495,19 @@ def main(argv: list[str] | None = None) -> None:
     setup_logger()
     logger.info("VidBrain 启动")
 
+    # 设置进程优先级
+    from vidbrain.throttle import set_low_priority
+    set_low_priority(cfg.priority_level)
+
     # 精炼模式
     if cfg.refine:
-        run_refine(cfg)
+        if cfg.embedding_enabled:
+            emb_cfg = _init_embedding()
+            emb_store = _init_embedding_store(cfg.vault_dir)
+            emb_engine = _init_embedding_engine(emb_cfg)
+            run_refine(cfg, emb_store, emb_engine)
+        else:
+            run_refine(cfg)
         return
 
     # 初始化 LLM 配置
@@ -469,6 +522,13 @@ def main(argv: list[str] | None = None) -> None:
     db = DatabaseManager(cfg.db_path)
     db.init_db()
     logger.info("数据库已初始化: %s", cfg.db_path)
+
+    # 初始化 embedding（可选）
+    emb_config = None
+    emb_store = None
+    if cfg.embedding_enabled:
+        emb_config = _init_embedding()
+        emb_store = _init_embedding_store(cfg.vault_dir)
 
     # 阶段一：分类（对所有文件执行文件名分类）
     logger.info("阶段一: 分类视频文件...")
@@ -529,7 +589,7 @@ def main(argv: list[str] | None = None) -> None:
             return
         logger.info("已重置 %d 个任务，继续执行正常处理流程...", count)
 
-    processed = process_batch(db, asr_engine, llm_config, cfg)
+    processed = process_batch(db, asr_engine, llm_config, cfg, emb_config, emb_store)
     if processed == 0:
         logger.info("没有待处理的 tech 视频")
 
@@ -568,7 +628,7 @@ def main(argv: list[str] | None = None) -> None:
             # 先分类新文件
             classify_all_pending(db, cfg.input_dir)
             # 再处理一批
-            process_batch(db, asr_engine, llm_config, cfg)
+            process_batch(db, asr_engine, llm_config, cfg, emb_config, emb_store)
             batch_count += 1
 
             # 检查是否需要自动精炼
@@ -585,7 +645,11 @@ def main(argv: list[str] | None = None) -> None:
 
             if need_refine:
                 logger.info("自动触发知识库精炼: %s", refine_reason)
-                run_refine(cfg)
+                if cfg.embedding_enabled and emb_config is not None:
+                    emb_engine = _init_embedding_engine(emb_config)
+                    run_refine(cfg, emb_store, emb_engine)
+                else:
+                    run_refine(cfg)
                 last_refine_time = time.time()
     except KeyboardInterrupt:
         shutdown(None, None)
