@@ -58,6 +58,41 @@ class DatabaseManager:
                         UPDATE video_pipeline SET updated_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
                     END;
                 """)
+
+                # ── Metrics 快照表 ──
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS metrics_snapshots (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp TEXT NOT NULL,
+                        snapshot_json TEXT NOT NULL,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+                # ── 审计日志表 ──
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS audit_log (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp TEXT NOT NULL,
+                        event_type TEXT NOT NULL,
+                        component TEXT NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'success',
+                        video_id TEXT DEFAULT '',
+                        video_name TEXT DEFAULT '',
+                        details_json TEXT DEFAULT '{}',
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_audit_event_type ON audit_log(event_type)
+                """)
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp)
+                """)
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_audit_video_id ON audit_log(video_id)
+                """)
+
                 conn.commit()
 
     def create_task(self, video_id: str, video_name: str, file_path: str) -> None:
@@ -249,3 +284,101 @@ class DatabaseManager:
                 )
                 conn.commit()
                 return cursor.rowcount > 0
+
+    # ── Metrics / Audit 方法 ──
+
+    def insert_metrics_snapshot(self, snapshot: dict) -> None:
+        """写入一条指标快照。"""
+        import json
+        with self._lock:
+            with sqlite3.connect(self._db_path) as conn:
+                conn.execute(
+                    "INSERT INTO metrics_snapshots (timestamp, snapshot_json) VALUES (?, ?)",
+                    (snapshot["timestamp"], json.dumps(snapshot, ensure_ascii=False)),
+                )
+                conn.commit()
+
+    def get_recent_metrics_snapshots(self, limit: int = 10) -> list[dict]:
+        """获取最近 N 条指标快照。"""
+        import json
+        with self._lock:
+            with sqlite3.connect(self._db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    "SELECT * FROM metrics_snapshots ORDER BY id DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+                results = []
+                for r in rows:
+                    d = dict(r)
+                    try:
+                        d["snapshot"] = json.loads(d.pop("snapshot_json"))
+                    except (json.JSONDecodeError, KeyError):
+                        d["snapshot"] = {}
+                    results.append(d)
+                return results
+
+    def insert_audit_log(
+        self, event_type: str, component: str, status: str,
+        video_id: str, video_name: str, details: dict,
+    ) -> None:
+        """写入一条审计日志。"""
+        import json
+        with self._lock:
+            with sqlite3.connect(self._db_path) as conn:
+                conn.execute(
+                    "INSERT INTO audit_log (timestamp, event_type, component, status, video_id, video_name, details_json) "
+                    "VALUES (datetime('now'), ?, ?, ?, ?, ?, ?)",
+                    (event_type, component, status, video_id, video_name,
+                     json.dumps(details, ensure_ascii=False)),
+                )
+                conn.commit()
+
+    def query_audit_log(
+        self, event_type: str = "", video_id: str = "", limit: int = 50,
+    ) -> list[dict]:
+        """查询审计日志，支持按事件类型和视频 ID 过滤。"""
+        import json
+        with self._lock:
+            with sqlite3.connect(self._db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                conditions = []
+                params: list = []
+                if event_type:
+                    conditions.append("event_type = ?")
+                    params.append(event_type)
+                if video_id:
+                    conditions.append("video_id = ?")
+                    params.append(video_id)
+                where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
+                query = f"SELECT * FROM audit_log{where} ORDER BY id DESC LIMIT ?"
+                params.append(limit)
+                rows = conn.execute(query, params).fetchall()
+                results = []
+                for r in rows:
+                    d = dict(r)
+                    try:
+                        d["details"] = json.loads(d.pop("details_json"))
+                    except (json.JSONDecodeError, KeyError):
+                        d["details"] = {}
+                    results.append(d)
+                return results
+
+    def get_pipeline_stats(self) -> dict:
+        """获取管线统计摘要（用于快速查看）。"""
+        with self._lock:
+            with sqlite3.connect(self._db_path) as conn:
+                total = conn.execute(
+                    "SELECT COUNT(*) FROM video_pipeline"
+                ).fetchone()[0]
+                by_status = conn.execute(
+                    "SELECT status, COUNT(*) FROM video_pipeline GROUP BY status"
+                ).fetchall()
+                by_category = conn.execute(
+                    "SELECT category, COUNT(*) FROM video_pipeline GROUP BY category"
+                ).fetchall()
+                return {
+                    "total": total,
+                    "by_status": dict(by_status),
+                    "by_category": dict(by_category),
+                }

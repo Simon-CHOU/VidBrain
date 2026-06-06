@@ -16,7 +16,9 @@ from typing import Any, Dict, List, TypedDict
 from langgraph.graph import END, StateGraph
 from openai import OpenAI
 
+from vidbrain.audit import get_audit
 from vidbrain.config import LLMConfig
+from vidbrain.metrics import get_metrics
 
 logger = logging.getLogger("vidbrain.agent")
 
@@ -36,16 +38,27 @@ class AgentState(TypedDict):
 
 def _call_llm(client: OpenAI, model: str, prompt: str, temperature: float) -> str:
     """调用 LLM API，含重试机制（最多 3 次，指数退避）。"""
+    m = get_metrics()
+    audit = get_audit()
     max_retries = 3
     for attempt in range(1, max_retries + 1):
+        t0 = time.time()
         try:
             response = client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=temperature,
             )
+            elapsed_ms = (time.time() - t0) * 1000
+            m.incr("llm_calls_total")
+            m.record_duration("llm_call_duration", elapsed_ms / 1000)
+            audit.api_call("deepseek", "chat.completions.create", elapsed_ms, success=True)
             return response.choices[0].message.content or ""
         except Exception as e:
+            elapsed_ms = (time.time() - t0) * 1000
+            m.incr("llm_calls_failed")
+            audit.api_call("deepseek", "chat.completions.create", elapsed_ms, success=False,
+                          error=str(e))
             logger.warning("LLM 调用失败 (尝试 %d/%d): %s", attempt, max_retries, str(e))
             if attempt < max_retries:
                 sleep_time = 2 ** (attempt - 1)

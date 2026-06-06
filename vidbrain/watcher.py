@@ -17,9 +17,11 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 from vidbrain.asr_engine import ASREngine
+from vidbrain.audit import get_audit
 from vidbrain.classifier import classify_video
 from vidbrain.config import LLMConfig, PipelineConfig
 from vidbrain.db import DatabaseManager
+from vidbrain.metrics import get_metrics
 from vidbrain.pipeline import process_pipeline
 
 logger = logging.getLogger("vidbrain.watcher")
@@ -67,13 +69,16 @@ class VideoFileHandler(FileSystemEventHandler):
 
     def _check_queue_backpressure(self) -> bool:
         """检查任务队列是否已积压过多。"""
+        m = get_metrics()
         try:
             qsize = self._executor._work_queue.qsize()
         except Exception:
             return False
+        m.set_gauge("queue_size", qsize)
         if qsize >= _MAX_QUEUE_SIZE:
             logger.warning("[Watcher] 任务队列积压 %d 个 (上限 %d)，暂停接收新任务",
                            qsize, _MAX_QUEUE_SIZE)
+            get_audit().queue_backpressure(qsize, _MAX_QUEUE_SIZE)
             return True
         return False
 
@@ -96,6 +101,7 @@ class VideoFileHandler(FileSystemEventHandler):
         # 分类
         cat, reason = classify_video(video_name)
         self._db.classify_task(video_id, cat, reason)
+        get_audit().classification(video_id, video_name, cat, reason)
         logger.info("[Watcher] 分类: %s -> %s (%s)", video_name, cat, reason)
 
         # 仅处理 tech 类视频

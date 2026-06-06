@@ -11,14 +11,17 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 
 from vidbrain.agent_graph import AgentState, create_agent_graph
 from vidbrain.asr_engine import ASREngine
+from vidbrain.audit import get_audit
 from vidbrain.config import EmbeddingConfig, LLMConfig, PipelineConfig
 from vidbrain.db import DatabaseManager
 from vidbrain.drafts import write_draft
+from vidbrain.metrics import get_metrics
 from vidbrain.updater import check_and_update, check_related_notes
 from vidbrain.feedback import detect_user_edits, extract_feedback_signals, get_feedback_context
 
@@ -91,19 +94,32 @@ def process_pipeline(
     embedding_store = None,
 ) -> None:
     """执行完整的视频处理管线。"""
+    m = get_metrics()
+    audit = get_audit()
+    pipeline_start = time.time()
+
     logger.info("[Pipeline] 开始处理: %s", video_name)
+    m.incr("total_processed")
 
     try:
         # Step 1: 本地 ASR
+        prev_status = "PENDING"
         db.update_status(video_id, "ASR_PROCESSING")
+        audit.task_status_change(video_id, video_name, prev_status, "ASR_PROCESSING")
         logger.info("[Pipeline] 阶段 1/4 - ASR 转录: %s", video_name)
+        asr_start = time.time()
         asr_data = asr_engine.transcribe(file_path)
+        asr_elapsed = time.time() - asr_start
+        m.record_duration("asr_duration", asr_elapsed)
         raw_text = "\n".join(item["text"] for item in asr_data)
         db.update_status(video_id, "ASR_DONE", raw_asr=json.dumps(asr_data, ensure_ascii=False))
-        logger.info("[Pipeline] ASR 完成: %s, %d 段文本", video_name, len(asr_data))
+        audit.task_status_change(video_id, video_name, "ASR_PROCESSING", "ASR_DONE",
+                                 details={"segments": len(asr_data), "duration_s": round(asr_elapsed, 1)})
+        logger.info("[Pipeline] ASR 完成: %s, %d 段文本 (%.1fs)", video_name, len(asr_data), asr_elapsed)
 
         # Step 2: 扫描本地知识库建立动态 Context
         db.update_status(video_id, "AGENT_PROCESSING")
+        audit.task_status_change(video_id, video_name, "ASR_DONE", "AGENT_PROCESSING")
         vault_path = Path(cfg.vault_dir)
         existing_notes = []
         if vault_path.exists():
@@ -142,6 +158,7 @@ def process_pipeline(
 
         # Step 3: 运行 Agent
         logger.info("[Pipeline] 阶段 3/4 - Agent 处理: %s", video_name)
+        agent_start = time.time()
         graph = create_agent_graph(llm_config)
         initial_state: AgentState = {
             "video_id": video_id,
@@ -154,7 +171,9 @@ def process_pipeline(
             "feedback_context": feedback_context,
         }
         final_state = graph.invoke(initial_state)
-        logger.info("[Pipeline] Agent 处理完成: %s", video_name)
+        agent_elapsed = time.time() - agent_start
+        m.record_duration("agent_duration", agent_elapsed)
+        logger.info("[Pipeline] Agent 处理完成: %s (%.1fs)", video_name, agent_elapsed)
 
         # Step 4: 写入 Obsidian Vault（永远不修改 input_dir 下的文件）
         logger.info("[Pipeline] 阶段 4/4 - 写入知识库: %s", video_name)
@@ -165,6 +184,7 @@ def process_pipeline(
             # 半自动模式：写入 _drafts/ 目录，等待人工审核
             write_draft(cfg.vault_dir, output_file_name, final_state["final_markdown"], video_name)
             db.update_status(video_id, "DRAFT_PENDING")
+            audit.task_status_change(video_id, video_name, "AGENT_PROCESSING", "DRAFT_PENDING")
             logger.info("[Pipeline] 草稿已生成 (待审核): %s/%s", "_drafts", output_file_name)
         else:
             # 全自动模式：直接写入 Vault 根目录
@@ -181,11 +201,19 @@ def process_pipeline(
                 f"created: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
                 f"---\n\n"
             )
-            output_path.write_text(
-                front_matter + final_state["final_markdown"], encoding="utf-8"
-            )
+            full_content = front_matter + final_state["final_markdown"]
+            output_path.write_text(full_content, encoding="utf-8")
             db.update_status(video_id, "SUCCESS")
-            logger.info("[Pipeline] 完成! %s -> %s", video_name, output_path)
+            pipeline_elapsed = time.time() - pipeline_start
+            m.record_duration("pipeline_total", pipeline_elapsed)
+            m.incr("total_succeeded")
+            audit.task_status_change(video_id, video_name, "AGENT_PROCESSING", "SUCCESS",
+                                     details={"quality_score": quality,
+                                              "segments": len(asr_data),
+                                              "duration_s": round(pipeline_elapsed, 1)})
+            audit.file_write(str(output_path), len(full_content.encode("utf-8")), video_name)
+            logger.info("[Pipeline] 完成! %s -> %s (总计 %.1fs, quality=%d)",
+                        video_name, output_path, pipeline_elapsed, quality)
 
             # 增量缓存新笔记的 embedding
             if cfg.embedding_enabled and embed_store_for_check is not None and embed_engine is not None:
@@ -214,6 +242,10 @@ def process_pipeline(
 
     except Exception as e:
         error_msg = str(e)
+        pipeline_elapsed = time.time() - pipeline_start
+        m.incr("total_failed")
+        audit.error("pipeline", error_msg, video_id=video_id, video_name=video_name,
+                    details={"duration_s": round(pipeline_elapsed, 1)})
         retry_count = db.increment_retry(video_id, error_msg)
         if retry_count >= 3:
             logger.error(
@@ -221,9 +253,14 @@ def process_pipeline(
                 retry_count, video_name, error_msg,
             )
             db.update_status(video_id, "PERMANENTLY_FAILED", error_msg=error_msg)
+            m.incr("total_permanently_failed")
+            audit.task_status_change(video_id, video_name, "AGENT_PROCESSING", "PERMANENTLY_FAILED",
+                                     reason=error_msg)
         else:
             logger.error(
                 "[Pipeline] 失败 (将自动重试, %d/3): %s - %s",
                 retry_count, video_name, error_msg,
             )
             db.update_status(video_id, "PENDING")
+            audit.task_status_change(video_id, video_name, "AGENT_PROCESSING", "PENDING",
+                                     reason=f"retry {retry_count}/3: {error_msg}")

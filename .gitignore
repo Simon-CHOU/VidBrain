@@ -11,12 +11,22 @@ venv/
 
 # Database
 *.db
+*.db-wal
+*.db-shm
+*.db-journal
 
 # Logs
 logs/
 
+# Reports (metrics exports, audit exports)
+reports/
+
 # Model cache (downloaded Whisper models)
 .model_cache/
+
+# Runtime output — Obsidian vault (knowledge base)
+vidbrain_vault/
+_drafts/
 
 # Temporary test directories
 test_vault/

@@ -18,10 +18,12 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from vidbrain.asr_engine import ASREngine
+from vidbrain.audit import get_audit
 from vidbrain.classifier import classify_video
 from vidbrain.config import LLMConfig, PipelineConfig
 from vidbrain.db import DatabaseManager
 from vidbrain.logger import setup_logger
+from vidbrain.metrics import get_metrics
 from vidbrain.pipeline import process_pipeline
 from vidbrain.watcher import start_watcher
 
@@ -52,8 +54,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--vault-dir",
-        required=True,
-        help="Obsidian Vault 路径（必填）",
+        default="./vidbrain_vault",
+        help="Obsidian Vault 路径（默认: ./vidbrain_vault）",
     )
     parser.add_argument(
         "--db-path",
@@ -79,8 +81,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--interval",
-        default="",
-        help="持续模式间隔（例如 30m, 2h），空=仅一次",
+        default="30m",
+        help="持续模式间隔（例如 5m, 2h），默认: 30m",
     )
     parser.add_argument(
         "--once",
@@ -134,12 +136,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="进入分类审核模式",
     )
-    parser.add_argument("--priority", default="below_normal", choices=["normal", "below_normal", "idle"],
-        help="进程优先级（默认: below_normal）")
+    parser.add_argument("--priority", default="normal", choices=["normal", "below_normal", "idle"],
+        help="进程优先级（默认: normal）")
     parser.add_argument("--video-cooldown", type=int, default=0,
         help="视频间冷却秒数（默认: 0，长时运行推荐 30）")
     parser.add_argument("--embedding", action="store_true", default=False,
         help="启用 embedding 语义检索和 MOC 聚类（需设置 DASHSCOPE_API_KEY 环境变量）")
+    parser.add_argument("--metrics-interval", type=int, default=3600,
+        help="指标快照落盘间隔（秒，默认: 3600=1小时）")
+    parser.add_argument("--metrics-export-dir", default="reports",
+        help="指标导出目录（默认: reports）")
+    parser.add_argument("--audit-export", action="store_true", default=False,
+        help="退出前导出审计日志为 JSON（不启用则仅写 audit.jsonl）")
     return parser.parse_args(argv)
 
 
@@ -495,6 +503,23 @@ def main(argv: list[str] | None = None) -> None:
     setup_logger()
     logger.info("VidBrain 启动")
 
+    # 初始化数据库
+    db = DatabaseManager(cfg.db_path)
+    db.init_db()
+    logger.info("数据库已初始化: %s", cfg.db_path)
+
+    # 初始化 Metrics 系统
+    metrics = get_metrics()
+    metrics.bind_db(db, cfg.db_path)
+    logger.info("指标收集器已初始化")
+
+    # 初始化 Audit 系统
+    audit = get_audit()
+    audit.setup(log_dir="logs", db=db)
+    audit.system_event("startup", {"mode": "continuous" if cfg.interval_seconds > 0 else "once",
+                                    "config": str(cfg)})
+    logger.info("审计日志系统已初始化")
+
     # 设置进程优先级
     from vidbrain.throttle import set_low_priority
     set_low_priority(cfg.priority_level)
@@ -518,10 +543,13 @@ def main(argv: list[str] | None = None) -> None:
         logger.error("LLM 配置加载失败: %s", str(e))
         sys.exit(1)
 
-    # 初始化数据库
-    db = DatabaseManager(cfg.db_path)
-    db.init_db()
-    logger.info("数据库已初始化: %s", cfg.db_path)
+    # 提前下载 ASR 模型（在首条任务处理之前完成下载，避免处理中途失败）
+    logger.info("预下载 ASR 模型: size=%s, cpu_threads=%d", cfg.model_size, cfg.cpu_threads)
+    try:
+        ASREngine.prepare_model(cfg.model_size, cfg.cpu_threads)
+    except Exception:
+        logger.exception("ASR 模型预下载失败，程序退出")
+        sys.exit(1)
 
     # 初始化 embedding（可选）
     emb_config = None
@@ -609,11 +637,23 @@ def main(argv: list[str] | None = None) -> None:
     Path(cfg.input_dir).mkdir(parents=True, exist_ok=True)
     observer = start_watcher(cfg.input_dir, db, asr_engine, llm_config, cfg, executor)
 
+    last_metrics_flush = time.time()
+    metrics_interval = args.metrics_interval
+
     def shutdown(signum, frame):
         logger.info("收到关闭信号，正在停止...")
+        # 最终指标落盘
+        metrics.log_summary()
+        metrics.flush_to_db()
+        metrics.dump_json(f"{args.metrics_export_dir}/metrics_final.json")
+        # 审计日志导出
+        if args.audit_export:
+            audit.dump_json(f"{args.metrics_export_dir}/audit_final.json")
+        audit.system_event("shutdown", {"uptime_s": round(time.time() - metrics._start_time, 1)})
         observer.stop()
         executor.shutdown(wait=False)
         observer.join()
+        logger.info("VidBrain 已停止")
         sys.exit(0)
 
     signal.signal(signal.SIGINT, shutdown)
@@ -628,8 +668,18 @@ def main(argv: list[str] | None = None) -> None:
             # 先分类新文件
             classify_all_pending(db, cfg.input_dir)
             # 再处理一批
-            process_batch(db, asr_engine, llm_config, cfg, emb_config, emb_store)
+            batch_processed = process_batch(db, asr_engine, llm_config, cfg, emb_config, emb_store)
             batch_count += 1
+            metrics.incr("batches_completed")
+            metrics.mark_event("last_batch_time")
+
+            # 定期落盘指标
+            now = time.time()
+            if now - last_metrics_flush >= metrics_interval:
+                metrics.flush_to_db()
+                metrics.dump_json(f"{args.metrics_export_dir}/metrics_snapshot.json")
+                metrics.log_summary()
+                last_metrics_flush = now
 
             # 检查是否需要自动精炼
             need_refine = False
@@ -651,6 +701,13 @@ def main(argv: list[str] | None = None) -> None:
                 else:
                     run_refine(cfg)
                 last_refine_time = time.time()
+        # 正常退出（如 interval=0 的单次模式会到此处）
+        metrics.log_summary()
+        metrics.flush_to_db()
+        metrics.dump_json(f"{args.metrics_export_dir}/metrics_final.json")
+        if args.audit_export:
+            audit.dump_json(f"{args.metrics_export_dir}/audit_final.json")
+        audit.system_event("shutdown", {"reason": "completed"})
     except KeyboardInterrupt:
         shutdown(None, None)
 
