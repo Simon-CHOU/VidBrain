@@ -30,7 +30,6 @@
 └─► 节点 C: link_node (扫描 Obsidian Vault 目录动态双链织网) ◄──────┘
 │
 ├──► 📂 5a. 最终输出：Obsidian Vault (纯 Markdown 文件群，包含双链)
-└──► 📂 5b. 文件归档：本地归档目录 (./archive_videos/*.mp4)
 
 ```
 
@@ -38,7 +37,7 @@
 1. **文件检测**：当任何外部程序或用户将 `.mp4` 视频放入本地 `input_dir/` 且写入完成后，`watchdog` 捕捉到关闭句柄事件，在 SQLite 中初始化一条 `PENDING` 任务记录。
 2. **本地 ASR 阶段**：后台管线轮询 SQLite，调用本地 CPU 密集型 ASR 引擎，解析出带精确时间戳的文本，将 JSON 灌入数据库，并将状态更新为 `ASR_DONE`。
 3. **云端 Agent 阶段**：LangGraph 框架启动。工作流先读取当前 Obsidian 目录下的所有 `.md` 文件名建立索引视图。随后将 ASR 文本送入 DeepSeek API 进行术语纠错、知识块提炼（概念、代码、踩坑点）。最后利用索引视图，让大模型自动在文本中编织 `[[双链]]`。
-4. **归档流**：知识笔记原子化写入 Obsidian Vault。SQLite 任务状态置为 `SUCCESS`。原始 `.mp4` 文件从 `input_dir/` 剪切移至 `archive_dir/`，防止二次触发。
+4. **产出流**：知识笔记原子化写入 Obsidian Vault。SQLite 任务状态置为 `SUCCESS`。原始 `.mp4` 文件保留在原位，不会被移动或删除（只读约束）。
 
 ---
 

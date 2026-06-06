@@ -9,3 +9,9 @@ dependencies = [
     "openai>=1.55.0",
     "langgraph>=0.2.0",
 ]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[dependency-groups]
+dev = ["pytest>=8.0"]

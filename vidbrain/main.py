@@ -131,14 +131,12 @@ def build_config(args: argparse.Namespace) -> PipelineConfig:
 
 def classify_all_pending(db: DatabaseManager, input_dir: str) -> None:
     """对所有未分类的视频执行文件名分类（批量操作）。"""
-    from pathlib import Path
 
     input_path = Path(input_dir)
     if not input_path.exists():
         return
 
     # 批量扫描磁盘上的所有 .mp4 文件
-    import hashlib
 
     all_mp4 = sorted(input_path.rglob("*.mp4"))
 
@@ -214,7 +212,6 @@ def run_refine(cfg: PipelineConfig) -> None:
     if not vault_path.exists():
         logger.error("Vault 目录不存在: %s", cfg.vault_dir)
         return
-    from vidbrain.config import LLMConfig
     llm_config = LLMConfig()
     refine_vault(str(vault_path), llm_config)
 

@@ -20,6 +20,10 @@ logs/
 
 # Temporary test directories
 test_vault/
+smoke_test_vault/
+
+# pytest
+.pytest_cache/
 
 # Environment files (if any)
 .env
