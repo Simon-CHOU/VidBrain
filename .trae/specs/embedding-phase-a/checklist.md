@@ -1,0 +1,21 @@
+- [ ] `vidbrain/config.py` 包含 `EmbeddingConfig` dataclass，从 `DASHSCOPE_API_KEY` / `DASHSCOPE_BASE_URL` 环境变量读取
+- [ ] `EmbeddingConfig` API Key 缺失时抛出 OSError（而非静默失败）
+- [ ] `vidbrain/config.py` 中 `PipelineConfig` 包含 `embedding_enabled: bool = False`
+- [ ] `vidbrain/embedding.py` 存在且包含 `EmbeddingEngine`、`EmbeddingStore`、`_kmeans` 三个核心组件
+- [ ] `EmbeddingEngine.embed("hello")` 返回 `list[float]`，维度 >= 1024
+- [ ] `EmbeddingEngine.embed_batch(["a","b"])` 一次 API 调用嵌入两条文本
+- [ ] `EmbeddingEngine.similarity(v, v)` 返回 1.0（相同向量）
+- [ ] `EmbeddingStore.load()` 从 `.vidbrain_embeddings.json` 正确读取 meta/mtime/vectors
+- [ ] `EmbeddingStore.set_vector()` 后调用 `save()` 正确持久化到 JSON
+- [ ] `EmbeddingStore.needs_recompute("stem", newer_mtime)` 返回 True
+- [ ] `EmbeddingStore.find_similar(query_vec, top_k=3)` 返回正确的 (stem, score) 元组列表
+- [ ] `_kmeans(vectors, k=3)` 对明显分离的簇正确分类
+- [ ] `check_related_notes()` 在 `embedding_enabled=True` 时使用 embedding 检索（非子串匹配）
+- [ ] `check_related_notes()` 在 `embedding_enabled=False` 时使用原始子串匹配（向后兼容）
+- [ ] `_extract_topics()` 在嵌入可用时使用 k-means 聚类 + LLM 命名
+- [ ] `_extract_topics()` 在嵌入不可用时回退到原始 LLM-only 方案
+- [ ] `--embedding` CLI flag 正确解析并映射到 `PipelineConfig.embedding_enabled`
+- [ ] `pipeline.py` Step 4 写入新笔记后自动缓存嵌入向量到 EmbeddingStore
+- [ ] `tests/test_embedding.py` 所有单元测试通过
+- [ ] 全量回归测试 75/75 通过（向后兼容）
+- [ ] API Key 不会写入日志或任何文件（遵循项目安全规则）
