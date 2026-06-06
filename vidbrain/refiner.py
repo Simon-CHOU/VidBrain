@@ -42,11 +42,16 @@ def parse_links(text: str) -> list[str]:
 
 
 def read_note(path: Path) -> dict[str, Any]:
-    """读取单篇笔记，返回 {name, content, outgoing_links}。"""
+    """读取单篇笔记，返回 {name, content, outgoing_links, quality}。"""
     content = path.read_text(encoding="utf-8", errors="replace")
     name = path.stem
     links = parse_links(content)
-    return {"name": name, "content": content, "outgoing_links": links, "path": str(path)}
+    # 尝试从 front-matter 读取质量评分
+    quality = 0
+    q_match = re.search(r"^quality_score:\s*(\d+)", content, re.MULTILINE)
+    if q_match:
+        quality = int(q_match.group(1))
+    return {"name": name, "content": content, "outgoing_links": links, "path": str(path), "quality": quality}
 
 
 def scan_vault(vault_path: str) -> list[dict[str, Any]]:
@@ -302,11 +307,14 @@ def refine_vault(vault_path: str, llm_config: LLMConfig) -> None:
         len(orphan_out), len(orphan_in),
     )
 
-    # Step 3: 批量补充双链（优先处理无出链的笔记）
+    # Step 3: 批量补充双链（优先处理低质量的无出链笔记）
     if orphan_out:
         logger.info("阶段 1/2: 批量补充双向链接...")
         client = OpenAI(api_key=llm_config.api_key, base_url=llm_config.base_url)
-        all_titles = [n["name"] for n in notes]
+        # all_titles 按质量评分降序排列（高质量笔记优先被引用）
+        all_titles = [n["name"] for n in sorted(notes, key=lambda n: n.get("quality", 0), reverse=True)]
+        # orphan_out 按质量评分升序排列（低质量笔记优先获得链接补充）
+        orphan_out.sort(key=lambda n: n.get("quality", 0))
 
         # 分批处理，每批最多 10 篇
         batch_size = 10
