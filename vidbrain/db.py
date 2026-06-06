@@ -32,14 +32,21 @@ class DatabaseManager:
                         classify_reason TEXT,
                         raw_asr_json TEXT,
                         error_message TEXT,
+                        retry_count INTEGER DEFAULT 0,
+                        last_error TEXT,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
                 # 兼容旧表：如果列不存在则添加
-                for col in ["category", "classify_reason"]:
+                for col, col_type in [
+                    ("category", "TEXT"),
+                    ("classify_reason", "TEXT"),
+                    ("retry_count", "INTEGER DEFAULT 0"),
+                    ("last_error", "TEXT"),
+                ]:
                     try:
-                        conn.execute(f"ALTER TABLE video_pipeline ADD COLUMN {col} TEXT")
+                        conn.execute(f"ALTER TABLE video_pipeline ADD COLUMN {col} {col_type}")
                     except sqlite3.OperationalError:
                         pass  # 列已存在
                 # 自动更新 updated_at 的触发器
@@ -190,3 +197,55 @@ class DatabaseManager:
                     "SELECT id, video_name, file_path FROM video_pipeline WHERE category IS NULL"
                 ).fetchall()
                 return [(r[0], r[1], r[2]) for r in rows]
+
+    def get_failed_retryable(self) -> list[dict]:
+        """获取可重试的失败任务（retry_count < 3 的 FAILED 状态）。"""
+        with self._lock:
+            with sqlite3.connect(self._db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    "SELECT * FROM video_pipeline WHERE status='FAILED' AND COALESCE(retry_count, 0) < 3"
+                ).fetchall()
+                return [dict(r) for r in rows]
+
+    def increment_retry(self, video_id: str, error_msg: str) -> int:
+        """失败时自增重试计数，返回新的重试次数。若已达上限则返回 -1。"""
+        with self._lock:
+            with sqlite3.connect(self._db_path) as conn:
+                row = conn.execute(
+                    "SELECT COALESCE(retry_count, 0) AS cnt FROM video_pipeline WHERE id=?",
+                    (video_id,),
+                ).fetchone()
+                current = row[0] if row else 0
+                new_count = current + 1
+                conn.execute(
+                    "UPDATE video_pipeline SET retry_count=?, last_error=? WHERE id=?",
+                    (new_count, error_msg, video_id),
+                )
+                conn.commit()
+                return new_count
+
+    def reset_retry(self, video_id: str) -> None:
+        """手动重置重试计数，将 FAILED 任务恢复为 PENDING 以便重新处理。"""
+        with self._lock:
+            with sqlite3.connect(self._db_path) as conn:
+                conn.execute(
+                    "UPDATE video_pipeline SET status='PENDING', retry_count=0, last_error=NULL WHERE id=?",
+                    (video_id,),
+                )
+                conn.commit()
+
+    def update_status_by_name(self, video_stem: str, status: str) -> bool:
+        """通过视频文件名 stem 匹配更新状态（用于草稿发布/删除回调）。
+
+        Returns:
+            是否找到并更新了记录
+        """
+        with self._lock:
+            with sqlite3.connect(self._db_path) as conn:
+                cursor = conn.execute(
+                    "UPDATE video_pipeline SET status=? WHERE video_name LIKE ?",
+                    (status, f"{video_stem}.%"),
+                )
+                conn.commit()
+                return cursor.rowcount > 0

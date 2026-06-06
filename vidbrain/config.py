@@ -69,3 +69,9 @@ class PipelineConfig:
     interval_seconds: int = 0  # 持续模式的间隔秒数（0 = 不启用）
     classify_only: bool = False  # 仅分类，不处理
     refine: bool = False  # 执行知识库精炼
+    auto_refine_after: int = 0  # 处理 N 批后自动精炼（0 = 不启用）
+    auto_refine_every_hours: int = 0  # 每 N 小时自动精炼（0 = 不启用）
+    retry_failed: bool = False  # 手动重试所有可重试的失败任务
+    semi: bool = False  # 半自动模式（启用所有人工审核门禁）
+    review_drafts: bool = False  # 进入草稿审核模式
+    review_classifications: bool = False  # 进入分类审核模式

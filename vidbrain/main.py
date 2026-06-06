@@ -103,6 +103,37 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="执行知识库精炼模式",
     )
+    parser.add_argument(
+        "--retry-failed",
+        action="store_true",
+        help="手动重试所有可重试的失败任务（重置为 PENDING）",
+    )
+    parser.add_argument(
+        "--auto-refine-after",
+        type=int,
+        default=0,
+        help="处理 N 批后自动执行知识库精炼（0=禁用，默认: 0）",
+    )
+    parser.add_argument(
+        "--auto-refine-every",
+        default="",
+        help="每 N 小时自动执行知识库精炼（例如 24h，0=禁用，默认: 空）",
+    )
+    parser.add_argument(
+        "--semi",
+        action="store_true",
+        help="半自动模式（启用分类审核 + 队列审批 + 草稿审核）",
+    )
+    parser.add_argument(
+        "--review-drafts",
+        action="store_true",
+        help="进入草稿审核模式",
+    )
+    parser.add_argument(
+        "--review-classifications",
+        action="store_true",
+        help="进入分类审核模式",
+    )
     return parser.parse_args(argv)
 
 
@@ -114,6 +145,7 @@ def build_config(args: argparse.Namespace) -> PipelineConfig:
         1, multiprocessing.cpu_count() - 1
     )
     interval_seconds = parse_interval(args.interval) if args.interval else 0
+    auto_refine_every_hours = parse_interval(args.auto_refine_every) // 3600 if args.auto_refine_every else 0
     return PipelineConfig(
         input_dir=args.input_dir,
         vault_dir=args.vault_dir,
@@ -126,6 +158,12 @@ def build_config(args: argparse.Namespace) -> PipelineConfig:
         interval_seconds=interval_seconds,
         classify_only=args.classify_only,
         refine=args.refine,
+        auto_refine_after=args.auto_refine_after,
+        auto_refine_every_hours=auto_refine_every_hours,
+        retry_failed=args.retry_failed,
+        semi=args.semi,
+        review_drafts=args.review_drafts,
+        review_classifications=args.review_classifications,
     )
 
 
@@ -190,11 +228,22 @@ def process_batch(
     llm_config: LLMConfig,
     cfg: PipelineConfig,
 ) -> int:
-    """处理一批 tech 视频，返回处理数量。"""
+    """处理一批技术视频（含自动重试失败的），返回处理数量。"""
+    # 先处理可重试的失败任务
+    retryable = db.get_failed_retryable()
+    if retryable:
+        logger.info("发现 %d 个可重试的失败任务，将自动重试", len(retryable))
+        for task in retryable:
+            process_pipeline(
+                task["id"], task["video_name"], task["file_path"],
+                db, asr_engine, llm_config, cfg,
+            )
+
+    # 然后处理新的 tech 视频
     tasks = db.get_pending_tech_tasks(limit=cfg.batch_size)
     if not tasks:
         logger.info("没有待处理的 tech 视频")
-        return 0
+        return len(retryable)
 
     logger.info("本批处理 %d 个 tech 视频", len(tasks))
     for task in tasks:
@@ -202,7 +251,20 @@ def process_batch(
             task["id"], task["video_name"], task["file_path"],
             db, asr_engine, llm_config, cfg,
         )
-    return len(tasks)
+    return len(tasks) + len(retryable)
+
+
+def retry_failed_tasks(db: DatabaseManager) -> int:
+    """手动重置所有可重试的失败任务为 PENDING。"""
+    retryable = db.get_failed_retryable()
+    if not retryable:
+        logger.info("没有可重试的失败任务")
+        return 0
+    for task in retryable:
+        db.reset_retry(task["id"])
+        logger.info("  已重置: %s", task["video_name"])
+    logger.info("共重置 %d 个失败任务为 PENDING", len(retryable))
+    return len(retryable)
 
 
 def run_refine(cfg: PipelineConfig) -> None:
@@ -214,6 +276,171 @@ def run_refine(cfg: PipelineConfig) -> None:
         return
     llm_config = LLMConfig()
     refine_vault(str(vault_path), llm_config)
+
+
+def _prompt_choice(prompt: str, options: str) -> str:
+    """交互式提示，返回用户输入的选项（大写）。"""
+    try:
+        choice = input(f"{prompt} [{options}]: ").strip().upper()
+    except (EOFError, KeyboardInterrupt):
+        return "Q"
+    return choice
+
+
+def review_classifications(db: DatabaseManager) -> None:
+    """交互式审核 unclear 分类的视频。"""
+    from vidbrain.classifier import classify_video
+
+    unclear = []
+    with db._lock:
+        import sqlite3
+        with sqlite3.connect(db._db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT id, video_name, file_path FROM video_pipeline WHERE category='unclear'"
+            ).fetchall()
+            unclear = [(r["id"], r["video_name"], r["file_path"]) for r in rows]
+
+    if not unclear:
+        logger.info("没有 unclear 视频需要审核")
+        return
+
+    logger.info("=" * 50)
+    logger.info("分类审核：共 %d 个 unclear 视频", len(unclear))
+    logger.info("=" * 50)
+
+    for idx, (vid, name, fp) in enumerate(unclear, 1):
+        print(f"\n[{idx}/{len(unclear)}] {name}")
+        choice = _prompt_choice("  [T]ech  [S]kip  [P]ass  [Q]uit", "T/S/P/Q")
+        if choice == "T":
+            db.classify_task(vid, "tech", "人工审核: 标记为 tech")
+            logger.info("  -> tech")
+        elif choice == "S":
+            db.classify_task(vid, "skip", "人工审核: 标记为 skip")
+            logger.info("  -> skip")
+        elif choice == "Q":
+            logger.info("审核中断，剩余 %d 个未处理", len(unclear) - idx)
+            break
+        else:
+            logger.info("  -> 保留 unclear")
+
+    logger.info("分类审核完成")
+
+
+def review_queue(db: DatabaseManager, batch_size: int) -> list[str]:
+    """交互式审批处理队列，返回已审批的视频 ID 列表。
+
+    Args:
+        db: 数据库管理器
+        batch_size: 每批最大数量
+
+    Returns:
+        用户 approved 的视频 ID 列表
+    """
+    tasks = db.get_pending_tech_tasks(limit=max(batch_size, 50))
+    if not tasks:
+        logger.info("没有待处理的 tech 视频")
+        return []
+
+    logger.info("=" * 50)
+    logger.info("队列审批：共 %d 个待处理视频", len(tasks))
+    logger.info("选项: [A]pprove 批准  [S]kip 跳过  [R]eject 拒绝  [全部]通过  [Q]uit")
+    logger.info("=" * 50)
+
+    approved: list[str] = []
+    for idx, task in enumerate(tasks, 1):
+        reason = task.get("classify_reason", "")
+        print(f"\n[{idx}/{len(tasks)}] {task['video_name']}")
+        if reason:
+            print(f"     分类理由: {reason}")
+        choice = _prompt_choice("  [A]pprove  [S]kip  [R]eject  [*]全部通过  [Q]uit", "A/S/R/*/Q")
+        if choice == "A":
+            approved.append(task["id"])
+            logger.info("  -> 已批准")
+        elif choice == "S":
+            db.classify_task(task["id"], "skip", "人工审批: 跳过")
+            logger.info("  -> 跳过")
+        elif choice == "R":
+            db.classify_task(task["id"], "skip", "人工审批: 拒绝")
+            logger.info("  -> 拒绝")
+        elif choice == "*":
+            # 全部通过剩余
+            for t in tasks[idx - 1:]:
+                approved.append(t["id"])
+            logger.info("  -> 全部通过 (%d 个)", len(tasks) - idx + 1)
+            break
+        elif choice == "Q":
+            logger.info("  -> 审批中断")
+            break
+
+    logger.info("队列审批完成: 批准 %d 个视频", len(approved))
+    return approved
+
+
+def review_drafts_vault(cfg: PipelineConfig, db: DatabaseManager) -> None:
+    """交互式审核草稿。"""
+    from vidbrain.drafts import list_drafts, publish_draft, discard_draft
+
+    drafts = list_drafts(cfg.vault_dir)
+    if not drafts:
+        logger.info("没有草稿需要审核")
+        return
+
+    logger.info("=" * 50)
+    logger.info("草稿审核：共 %d 篇草稿", len(drafts))
+    logger.info("选项: [P]ublish 发布  [D]iscard 删除  [S]kip 保留  [*]全部发布  [Q]uit")
+    logger.info("=" * 50)
+
+    for idx, draft_name in enumerate(drafts, 1):
+        # 读取草稿文件名（去掉 .md 后缀作为显示）
+        stem = Path(draft_name).stem
+        print(f"\n[{idx}/{len(drafts)}] {stem}")
+        choice = _prompt_choice("  [P]ublish  [D]iscard  [S]kip  [*]全部发布  [Q]uit", "P/D/S/*/Q")
+        if choice == "P":
+            result = publish_draft(cfg.vault_dir, draft_name)
+            if result:
+                # 尝试通过文件名反查 DB 任务并更新状态
+                db.update_status_by_name(stem, "SUCCESS")
+                logger.info("  -> 已发布")
+        elif choice == "D":
+            discard_draft(cfg.vault_dir, draft_name)
+            db.update_status_by_name(stem, "DISCARDED")
+            logger.info("  -> 已删除")
+        elif choice == "*":
+            for dn in drafts[idx - 1:]:
+                publish_draft(cfg.vault_dir, dn)
+                db.update_status_by_name(Path(dn).stem, "SUCCESS")
+            logger.info("  -> 全部发布 (%d 篇)", len(drafts) - idx + 1)
+            break
+        elif choice == "Q":
+            logger.info("  -> 审核中断")
+            break
+        else:
+            logger.info("  -> 保留草稿")
+
+    logger.info("草稿审核完成")
+
+
+def process_approved_tasks(
+    approved_ids: list[str],
+    db: DatabaseManager,
+    asr_engine: ASREngine,
+    llm_config: LLMConfig,
+    cfg: PipelineConfig,
+) -> int:
+    """仅处理审批通过的视频。"""
+    if not approved_ids:
+        return 0
+    count = 0
+    for vid in approved_ids:
+        task = db.get_task(vid)
+        if task and task.get("status") == "PENDING":
+            process_pipeline(
+                task["id"], task["video_name"], task["file_path"],
+                db, asr_engine, llm_config, cfg,
+            )
+            count += 1
+    return count
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -253,6 +480,18 @@ def main(argv: list[str] | None = None) -> None:
         logger.info("--classify-only 模式完成")
         return
 
+    # 独立分类审核模式
+    if cfg.review_classifications and not cfg.semi:
+        review_classifications(db)
+        logger.info("--review-classifications 模式完成")
+        return
+
+    # 独立草稿审核模式
+    if cfg.review_drafts and not cfg.semi:
+        review_drafts_vault(cfg, db)
+        logger.info("--review-drafts 模式完成")
+        return
+
     # 初始化 ASR 引擎
     asr_engine = ASREngine(
         model_size=cfg.model_size,
@@ -260,7 +499,36 @@ def main(argv: list[str] | None = None) -> None:
     )
     logger.info("ASR 引擎已创建 (model=%s, cpu_threads=%d)", cfg.model_size, cfg.cpu_threads)
 
+    # ── 半自动模式 ──
+    if cfg.semi:
+        # Step 1: 分类审核
+        review_classifications(db)
+
+        # Step 2: 队列审批
+        approved = review_queue(db, cfg.batch_size)
+        if not approved:
+            logger.info("没有审批通过的视频，半自动模式结束")
+            return
+
+        # Step 3: 处理已审批的视频
+        logger.info("开始处理 %d 个已审批视频", len(approved))
+        process_approved_tasks(approved, db, asr_engine, llm_config, cfg)
+
+        # Step 4: 草稿审核
+        review_drafts_vault(cfg, db)
+        logger.info("半自动模式完成")
+        return
+
+    # ── 全自动模式 ──
     # 阶段二：处理一批 tech 视频
+    # 手动重试模式
+    if cfg.retry_failed:
+        count = retry_failed_tasks(db)
+        if count == 0:
+            logger.info("--retry-failed 模式完成，未发现可重试任务")
+            return
+        logger.info("已重置 %d 个任务，继续执行正常处理流程...", count)
+
     processed = process_batch(db, asr_engine, llm_config, cfg)
     if processed == 0:
         logger.info("没有待处理的 tech 视频")
@@ -292,6 +560,8 @@ def main(argv: list[str] | None = None) -> None:
     signal.signal(signal.SIGTERM, shutdown)
 
     try:
+        batch_count = 0
+        last_refine_time = time.time()
         while True:
             time.sleep(cfg.interval_seconds)
             logger.info("定时触发: 开始新一批处理")
@@ -299,6 +569,24 @@ def main(argv: list[str] | None = None) -> None:
             classify_all_pending(db, cfg.input_dir)
             # 再处理一批
             process_batch(db, asr_engine, llm_config, cfg)
+            batch_count += 1
+
+            # 检查是否需要自动精炼
+            need_refine = False
+            refine_reason = ""
+            if cfg.auto_refine_after > 0 and batch_count % cfg.auto_refine_after == 0:
+                need_refine = True
+                refine_reason = f"已处理 {batch_count} 批"
+            elif cfg.auto_refine_every_hours > 0:
+                elapsed = time.time() - last_refine_time
+                if elapsed >= cfg.auto_refine_every_hours * 3600:
+                    need_refine = True
+                    refine_reason = f"距上次精炼已过 {elapsed / 3600:.1f} 小时"
+
+            if need_refine:
+                logger.info("自动触发知识库精炼: %s", refine_reason)
+                run_refine(cfg)
+                last_refine_time = time.time()
     except KeyboardInterrupt:
         shutdown(None, None)
 
