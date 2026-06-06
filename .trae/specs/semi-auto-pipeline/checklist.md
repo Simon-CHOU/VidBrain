@@ -1,0 +1,15 @@
+- [x] `vidbrain/drafts.py` 模块存在且包含 write_draft / list_drafts / publish_draft / discard_draft 四个函数
+- [x] `write_draft` 正确写入 `vault_dir/_drafts/<name>.md`，front-matter 含 `status: draft`
+- [x] `publish_draft` 正确移动文件到 Vault 根目录，front-matter 更新为 `status: auto-generated` + `reviewed: true`
+- [x] `discard_draft` 正确删除草稿文件
+- [x] `PipelineConfig` 包含 `semi` / `review_drafts` / `review_classifications` 字段
+- [x] `process_pipeline` 在 `semi=True` 时输出到 `_drafts/`，DB 状态为 `DRAFT_PENDING`
+- [x] `process_pipeline` 在 `semi=False` 时输出到 Vault 根目录，DB 状态为 `SUCCESS`（向后兼容）
+- [x] `--semi` CLI flag 可被正确解析并启用半自动模式
+- [x] `--review-drafts` 可独立触发草稿审核交互
+- [x] `--review-classifications` 可独立触发分类审核交互
+- [x] 交互式审核支持批量操作（`*`=全部通过）
+- [x] 全自动模式（无 --semi）行为不变
+- [x] `tests/test_drafts.py` 所有测试通过（9/9）
+- [x] 现有 31 个测试全部通过（无回归），总计 40/40
+- [x] 全自动模式下 `_drafts/` 目录不会被创建
