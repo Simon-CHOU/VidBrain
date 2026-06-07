@@ -81,6 +81,8 @@ class PipelineConfig:
     priority_level: str = "normal"  # 进程优先级: normal|below_normal|idle
     video_cooldown: int = 0  # 视频间冷却秒数（0=不启用，长时运行推荐 30）
     embedding_enabled: bool = False  # 启用 embedding 语义检索和聚类
+    parallel_workers: int = 0  # 并行处理视频数（0=串行，推荐 2-3）
+    asr_backend: str = "cpu"  # ASR 后端: cpu (faster-whisper) 或 vulkan (whisper.cpp Vulkan)
 
 
 @dataclass

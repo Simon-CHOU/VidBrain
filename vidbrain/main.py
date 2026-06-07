@@ -142,6 +142,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="视频间冷却秒数（默认: 0，长时运行推荐 30）")
     parser.add_argument("--embedding", action="store_true", default=False,
         help="启用 embedding 语义检索和 MOC 聚类（需设置 DASHSCOPE_API_KEY 环境变量）")
+    parser.add_argument("--parallel", type=int, default=0,
+        help="并行处理的视频数（0=串行，推荐 2-3，利用空闲 RAM 和 CPU 余量）")
+    parser.add_argument("--asr-backend", default="cpu", choices=["cpu", "vulkan"],
+        help="ASR 后端 (默认: cpu)。vulkan 需要 whisper.cpp 编译 Vulkan 支持并设置 WHISPER_CLI_PATH")
     parser.add_argument("--metrics-interval", type=int, default=3600,
         help="指标快照落盘间隔（秒，默认: 3600=1小时）")
     parser.add_argument("--metrics-export-dir", default="reports",
@@ -181,6 +185,8 @@ def build_config(args: argparse.Namespace) -> PipelineConfig:
         priority_level=args.priority,
         video_cooldown=args.video_cooldown,
         embedding_enabled=args.embedding,
+        parallel_workers=args.parallel,
+        asr_backend=args.asr_backend,
     )
 
 
@@ -265,38 +271,67 @@ def process_batch(
     emb_config = None,
     emb_store = None,
 ) -> int:
-    """处理一批技术视频（含自动重试失败的），返回处理数量。"""
-    # 先处理可重试的失败任务
+    """处理一批技术视频（含自动重试失败的），返回处理数量。
+
+    当 cfg.parallel_workers > 0 时，使用线程池并行处理多个视频，
+    利用空闲 RAM 换取吞吐量提升。
+    """
+    # 先收集所有待处理任务
     retryable = db.get_failed_retryable()
     if retryable:
         logger.info("发现 %d 个可重试的失败任务，将自动重试", len(retryable))
-        for task in retryable:
+
+    tasks = db.get_pending_tech_tasks(limit=cfg.batch_size)
+    if not tasks and not retryable:
+        logger.info("没有待处理的 tech 视频")
+        return 0
+
+    all_tasks = list(retryable) + list(tasks)
+    total = len(all_tasks)
+    n_retryable = len(retryable)
+
+    if cfg.parallel_workers <= 0:
+        # ── 串行模式 ──
+        logger.info("本批处理 %d 个 tech 视频 (串行)", total)
+        for task in all_tasks:
             process_pipeline(
                 task["id"], task["video_name"], task["file_path"],
                 db, asr_engine, llm_config, cfg,
+                embedding_config=emb_config,
+                embedding_store=emb_store,
             )
             if cfg.video_cooldown > 0:
                 from vidbrain.throttle import cooldown_sleep
                 cooldown_sleep(cfg.video_cooldown, f"视频 {task['video_name']} 处理完成")
+    else:
+        # ── 并行模式 ──
+        workers = min(cfg.parallel_workers, total)
+        logger.info("本批处理 %d 个 tech 视频 (并行, workers=%d)", total, workers)
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {}
+            for task in all_tasks:
+                future = executor.submit(
+                    process_pipeline,
+                    task["id"], task["video_name"], task["file_path"],
+                    db, asr_engine, llm_config, cfg,
+                    emb_config, emb_store,
+                )
+                futures[future] = task["video_name"]
 
-    # 然后处理新的 tech 视频
-    tasks = db.get_pending_tech_tasks(limit=cfg.batch_size)
-    if not tasks:
-        logger.info("没有待处理的 tech 视频")
-        return len(retryable)
+            # 等待所有任务完成
+            for future in futures:
+                video_name = futures[future]
+                try:
+                    future.result()  # 传播异常（如有）
+                except Exception as e:
+                    logger.error("[Parallel] 任务异常: %s - %s", video_name, str(e))
 
-    logger.info("本批处理 %d 个 tech 视频", len(tasks))
-    for task in tasks:
-        process_pipeline(
-            task["id"], task["video_name"], task["file_path"],
-            db, asr_engine, llm_config, cfg,
-            embedding_config=emb_config,
-            embedding_store=emb_store,
-        )
+        # 并行批次的冷却（整批完成后再冷却）
         if cfg.video_cooldown > 0:
             from vidbrain.throttle import cooldown_sleep
-            cooldown_sleep(cfg.video_cooldown, f"视频 {task['video_name']} 处理完成")
-    return len(tasks) + len(retryable)
+            cooldown_sleep(cfg.video_cooldown, "并行批次处理完成")
+
+    return total
 
 
 def retry_failed_tasks(db: DatabaseManager) -> int:
@@ -544,12 +579,34 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(1)
 
     # 提前下载 ASR 模型（在首条任务处理之前完成下载，避免处理中途失败）
-    logger.info("预下载 ASR 模型: size=%s, cpu_threads=%d", cfg.model_size, cfg.cpu_threads)
-    try:
-        ASREngine.prepare_model(cfg.model_size, cfg.cpu_threads)
-    except Exception:
-        logger.exception("ASR 模型预下载失败，程序退出")
-        sys.exit(1)
+    # 并行模式下按比例缩减线程数，避免过多的并发线程导致上下文切换开销
+    if cfg.parallel_workers > 0:
+        effective_threads = max(2, cfg.cpu_threads // cfg.parallel_workers)
+        logger.info("并行模式: workers=%d, cpu_threads 调整为 %d (原 %d)",
+                    cfg.parallel_workers, effective_threads, cfg.cpu_threads)
+        cfg.cpu_threads = effective_threads
+
+    use_vulkan = cfg.asr_backend == "vulkan"
+
+    # 预下载/准备模型
+    if use_vulkan:
+        logger.info("ASR 后端: Vulkan (whisper.cpp)")
+        from vidbrain.asr_engine_vulkan import ASREngineVulkan
+        # Vulkan 引擎自带 fallback，不需要单独下载 CPU 模型
+        # 但仍然预下载 faster-whisper 模型作为安全的 fallback
+        logger.info("预下载 CPU 备用模型: size=%s, cpu_threads=%d", cfg.model_size, cfg.cpu_threads)
+        try:
+            ASREngine.prepare_model(cfg.model_size, cfg.cpu_threads)
+        except Exception:
+            logger.warning("CPU 备用模型预下载失败（Vulkan 模式下非致命）")
+    else:
+        logger.info("ASR 后端: CPU (faster-whisper)")
+        logger.info("预下载 ASR 模型: size=%s, cpu_threads=%d", cfg.model_size, cfg.cpu_threads)
+        try:
+            ASREngine.prepare_model(cfg.model_size, cfg.cpu_threads)
+        except Exception:
+            logger.exception("ASR 模型预下载失败，程序退出")
+            sys.exit(1)
 
     # 初始化 embedding（可选）
     emb_config = None
@@ -581,11 +638,22 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     # 初始化 ASR 引擎
-    asr_engine = ASREngine(
-        model_size=cfg.model_size,
-        cpu_threads=cfg.cpu_threads,
-    )
-    logger.info("ASR 引擎已创建 (model=%s, cpu_threads=%d)", cfg.model_size, cfg.cpu_threads)
+    if use_vulkan:
+        asr_engine = ASREngineVulkan(
+            model_size=cfg.model_size,
+            cpu_threads=cfg.cpu_threads,
+        )
+        if asr_engine.vulkan_available:
+            logger.info("Vulkan ASR 引擎已就绪 (model=%s, cpu_threads=%d)", cfg.model_size, cfg.cpu_threads)
+        else:
+            logger.warning("Vulkan 不可用，将使用 faster-whisper CPU 作为降级方案")
+    else:
+        asr_engine = ASREngine(
+            model_size=cfg.model_size,
+            cpu_threads=cfg.cpu_threads,
+        )
+    logger.info("ASR 引擎已创建 (model=%s, cpu_threads=%d, backend=%s)",
+                cfg.model_size, cfg.cpu_threads, cfg.asr_backend)
 
     # ── 半自动模式 ──
     if cfg.semi:
@@ -631,7 +699,7 @@ def main(argv: list[str] | None = None) -> None:
         "持续模式已启动，间隔 %d 秒，每批 %d 个视频",
         cfg.interval_seconds, cfg.batch_size,
     )
-    executor = ThreadPoolExecutor(max_workers=1)
+    executor = ThreadPoolExecutor(max_workers=max(1, cfg.parallel_workers))
 
     # 启动 watchdog 监听新文件
     Path(cfg.input_dir).mkdir(parents=True, exist_ok=True)

@@ -24,6 +24,7 @@ from vidbrain.drafts import write_draft
 from vidbrain.metrics import get_metrics
 from vidbrain.updater import check_and_update, check_related_notes
 from vidbrain.feedback import detect_user_edits, extract_feedback_signals, get_feedback_context
+from vidbrain.vault_cache import get_vault_cache
 
 logger = logging.getLogger("vidbrain.pipeline")
 
@@ -121,16 +122,9 @@ def process_pipeline(
         db.update_status(video_id, "AGENT_PROCESSING")
         audit.task_status_change(video_id, video_name, "ASR_DONE", "AGENT_PROCESSING")
         vault_path = Path(cfg.vault_dir)
-        existing_notes = []
-        if vault_path.exists():
-            # 递归扫描，过滤 _drafts/ 子目录和 MOC 索引页
-            for p in vault_path.rglob("*.md"):
-                if "_drafts" in p.parts:
-                    continue
-                existing_notes.append(p.stem)
-            # 按质量评分降序排列（高质量笔记优先被 Agent 双链引用）
-            existing_notes = sorted(existing_notes, key=lambda s: _read_note_quality(vault_path, s), reverse=True)
-        logger.info("[Pipeline] 阶段 2/4 - 扫描知识库: %s, 发现 %d 篇笔记", video_name, len(existing_notes))
+        vault_cache = get_vault_cache()
+        existing_notes = vault_cache.get_existing_notes(cfg.vault_dir)
+        logger.info("[Pipeline] 阶段 2/4 - 扫描知识库: %s, 发现 %d 篇笔记 (缓存)", video_name, len(existing_notes))
 
         # 用户反馈检测
         edited_notes = detect_user_edits(cfg.vault_dir)
@@ -203,6 +197,11 @@ def process_pipeline(
             )
             full_content = front_matter + final_state["final_markdown"]
             output_path.write_text(full_content, encoding="utf-8")
+
+            # 增量更新 Vault 缓存
+            output_stem = Path(output_file_name).stem
+            vault_cache.add_note(cfg.vault_dir, output_stem, full_content)
+
             db.update_status(video_id, "SUCCESS")
             pipeline_elapsed = time.time() - pipeline_start
             m.record_duration("pipeline_total", pipeline_elapsed)
@@ -218,9 +217,7 @@ def process_pipeline(
             # 增量缓存新笔记的 embedding
             if cfg.embedding_enabled and embed_store_for_check is not None and embed_engine is not None:
                 try:
-                    output_stem = Path(output_file_name).stem
-                    note_text = front_matter + final_state["final_markdown"]
-                    vec = embed_engine.embed(note_text[:1000])
+                    vec = embed_engine.embed(full_content[:1000])
                     note_mtime = output_path.stat().st_mtime
                     embed_store_for_check.set_vector(
                         output_stem, vec,

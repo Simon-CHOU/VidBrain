@@ -1,7 +1,7 @@
 """
 Embedding engine and store for semantic search and clustering.
 
-Uses DashScope (OpenAI-compatible) embedding API with pure-Python
+Uses DashScope (OpenAI-compatible) embedding API with numpy-accelerated
 cosine similarity and k-means clustering.
 """
 
@@ -9,11 +9,10 @@ from __future__ import annotations
 
 import json
 import logging
-import math
-import random
 import time
 from pathlib import Path
 
+import numpy as np
 from openai import OpenAI
 
 from vidbrain.config import EmbeddingConfig
@@ -87,12 +86,14 @@ class EmbeddingEngine:
         raise RuntimeError("_call_api: unreachable")
 
     def similarity(self, vec1: list[float], vec2: list[float]) -> float:
-        """Compute cosine similarity between two vectors."""
-        dot = sum(a * b for a, b in zip(vec1, vec2))
-        norm1 = math.sqrt(sum(a * a for a in vec1))
-        norm2 = math.sqrt(sum(b * b for b in vec2))
-        if norm1 > 0 and norm2 > 0:
-            return dot / (norm1 * norm2)
+        """Compute cosine similarity between two vectors (numpy-accelerated)."""
+        a = np.asarray(vec1, dtype=np.float32)
+        b = np.asarray(vec2, dtype=np.float32)
+        dot = np.dot(a, b)
+        norm_a = np.linalg.norm(a)
+        norm_b = np.linalg.norm(b)
+        if norm_a > 0 and norm_b > 0:
+            return float(dot / (norm_a * norm_b))
         return 0.0
 
 
@@ -166,22 +167,37 @@ class EmbeddingStore:
         self, query_vec: list[float], top_k: int = 5
     ) -> list[tuple[str, float]]:
         """Return the *top_k* stems most similar to *query_vec* by
-        cosine similarity (O(N) brute-force)."""
-        results: list[tuple[str, float]] = []
-        for stem, vec in self._vectors.items():
-            dot = sum(a * b for a, b in zip(query_vec, vec))
-            norm1 = math.sqrt(sum(a * a for a in query_vec))
-            norm2 = math.sqrt(sum(b * b for b in vec))
-            sim = dot / (norm1 * norm2) if norm1 > 0 and norm2 > 0 else 0.0
-            results.append((stem, sim))
-        results.sort(key=lambda x: x[1], reverse=True)
-        return results[:top_k]
+        cosine similarity (numpy-accelerated batch computation)."""
+        if not self._vectors:
+            return []
+
+        stems = list(self._vectors.keys())
+        # 构建 numpy 矩阵 (N x D)
+        vecs = np.array([self._vectors[s] for s in stems], dtype=np.float32)
+        query = np.asarray(query_vec, dtype=np.float32)
+
+        # 批量计算余弦相似度
+        dot = np.dot(vecs, query)
+        norms_vecs = np.linalg.norm(vecs, axis=1)
+        norm_q = np.linalg.norm(query)
+        denom = norms_vecs * norm_q
+        # 避免除零
+        sims = np.divide(dot, denom, out=np.zeros_like(dot), where=denom > 0)
+
+        # 获取 top-k 索引
+        if top_k >= len(sims):
+            top_indices = np.argsort(sims)[::-1]
+        else:
+            top_indices = np.argpartition(sims, -top_k)[-top_k:]
+            top_indices = top_indices[np.argsort(sims[top_indices])[::-1]]
+
+        return [(stems[i], float(sims[i])) for i in top_indices]
 
 
 def _kmeans(
     vectors: list[list[float]], k: int, max_iter: int = 100
 ) -> list[int]:
-    """Pure-Python k-means clustering using cosine similarity.
+    """Numpy-accelerated k-means clustering using cosine similarity.
 
     Args:
         vectors: List of N vectors, each of dimension D.
@@ -199,50 +215,36 @@ def _kmeans(
     if k >= n:
         return list(range(n))
 
-    dim = len(vectors[0])
-    rng = random.Random(42)
-    indices = rng.sample(range(n), k)
-    centroids = [vectors[i][:] for i in indices]
+    # 构建 numpy 矩阵 (N x D)
+    data = np.array(vectors, dtype=np.float32)
+    dim = data.shape[1]
 
-    labels = [0] * n
+    # 随机初始化质心
+    rng = np.random.RandomState(42)
+    indices = rng.choice(n, k, replace=False)
+    centroids = data[indices].copy()
+
+    labels = np.zeros(n, dtype=np.int32)
+
     for _iteration in range(max_iter):
-        changed = False
+        # ── L2 归一化后用点积近似余弦相似度 ──
+        data_norm = data / (np.linalg.norm(data, axis=1, keepdims=True) + 1e-10)
+        centroids_norm = centroids / (np.linalg.norm(centroids, axis=1, keepdims=True) + 1e-10)
 
-        # ── assign each vector to nearest centroid ──
-        for i, vec in enumerate(vectors):
-            best_label = -1
-            best_sim = -2.0
-            for c_idx, centroid in enumerate(centroids):
-                dot = sum(a * b for a, b in zip(vec, centroid))
-                norm1 = math.sqrt(sum(a * a for a in vec))
-                norm2 = math.sqrt(sum(b * b for b in centroid))
-                sim = (
-                    dot / (norm1 * norm2)
-                    if norm1 > 0 and norm2 > 0
-                    else 0.0
-                )
-                if sim > best_sim:
-                    best_sim = sim
-                    best_label = c_idx
-            if labels[i] != best_label:
-                changed = True
-                labels[i] = best_label
+        # 余弦相似度矩阵 (N x K)
+        sim = np.dot(data_norm, centroids_norm.T)
+        new_labels = np.argmax(sim, axis=1)
 
-        if not changed:
+        # 检查收敛
+        if np.array_equal(labels, new_labels):
             break
+        labels = new_labels
 
-        # ── recompute centroids ──
-        new_centroids = [[0.0] * dim for _ in range(k)]
-        counts = [0] * k
-        for i, vec in enumerate(vectors):
-            c = labels[i]
-            counts[c] += 1
-            for d in range(dim):
-                new_centroids[c][d] += vec[d]
+        # ── 重新计算质心 ──
+        centroids = np.zeros((k, dim), dtype=np.float32)
         for c in range(k):
-            if counts[c] > 0:
-                for d in range(dim):
-                    new_centroids[c][d] /= counts[c]
-        centroids = new_centroids
+            mask = labels == c
+            if mask.any():
+                centroids[c] = data[mask].mean(axis=0)
 
-    return labels
+    return labels.tolist()

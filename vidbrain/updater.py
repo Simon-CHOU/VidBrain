@@ -16,6 +16,7 @@ from pathlib import Path
 from openai import OpenAI
 
 from vidbrain.config import LLMConfig
+from vidbrain.vault_cache import get_vault_cache
 
 logger = logging.getLogger("vidbrain.updater")
 
@@ -42,21 +43,11 @@ def _check_related_embedding(
     if not similar:
         return []
 
-    vp = Path(vault_path)
+    vault_cache = get_vault_cache()
     results: list[dict] = []
     for stem, sim in similar[:3]:
-        note_file = vp / f"{stem}.md"
-        content_preview = ""
-        try:
-            if note_file.exists():
-                raw = note_file.read_text(encoding="utf-8", errors="replace")
-                if raw.startswith("---"):
-                    parts = raw.split("---", 2)
-                    content_preview = (parts[2] if len(parts) >= 3 else raw)[:400].strip()
-                else:
-                    content_preview = raw[:400].strip()
-        except OSError:
-            pass
+        # 从缓存获取内容预览，避免磁盘读取
+        content_preview = vault_cache.get_content_preview(stem, vault_path=vault_path)
         results.append({
             "name": stem,
             "stem": stem,
@@ -167,24 +158,10 @@ def check_related_notes(
     if not related:
         return []
 
-    # 读取每个匹配笔记的前 400 字符作为预览
-    vp = Path(vault_path)
+    # 从缓存获取内容预览（避免磁盘读取，缓存未命中时回退到磁盘）
+    vault_cache = get_vault_cache()
     for r in related:
-        note_file = vp / f"{r['stem']}.md"
-        try:
-            if note_file.exists():
-                raw = note_file.read_text(encoding="utf-8", errors="replace")
-                # 跳过 front-matter（--- 块）
-                if raw.startswith("---"):
-                    parts = raw.split("---", 2)
-                    body = parts[2] if len(parts) >= 3 else raw
-                else:
-                    body = raw
-                r["content_preview"] = body[:400].strip()
-            else:
-                r["content_preview"] = ""
-        except OSError:
-            r["content_preview"] = ""
+        r["content_preview"] = vault_cache.get_content_preview(r["stem"], vault_path=vault_path)
 
     logger.info("检测到 %d 篇关联笔记 (top %d): %s",
                 len(related), min(3, len(related)),

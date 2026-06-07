@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -81,6 +82,7 @@ class ASREngine:
     """faster-whisper 引擎封装（全局单例）。"""
 
     _model: WhisperModel | None = None
+    _model_lock = threading.Lock()  # 保护 _model 的懒加载和 prepare_model
 
     def __init__(
         self,
@@ -172,12 +174,16 @@ class ASREngine:
         )
 
     def _get_model(self) -> WhisperModel:
-        """延迟加载模型（仅首次调用时加载）。"""
+        """延迟加载模型（仅首次调用时加载），线程安全。"""
         if ASREngine._model is not None:
             return ASREngine._model
 
-        ASREngine._model = self._load_model(self._model_size)
-        return ASREngine._model
+        with ASREngine._model_lock:
+            # 双重检查：可能在等待锁期间已被其他线程加载
+            if ASREngine._model is not None:
+                return ASREngine._model
+            ASREngine._model = self._load_model(self._model_size)
+            return ASREngine._model
 
     @classmethod
     def prepare_model(cls, model_size: str = "large-v3", cpu_threads: int = 4) -> WhisperModel:
@@ -185,42 +191,51 @@ class ASREngine:
 
         优先使用本地缓存；如果本地已缓存则零网络请求完成加载。
         加载后会存入类级别 _model 单例，后续 _get_model() 直接复用。
+        线程安全。
         """
-        logger.info(
-            "预下载模型: size=%s, device=cpu, compute_type=int8, cpu_threads=%d",
-            model_size, cpu_threads,
-        )
+        # 快速路径：已加载
+        if cls._model is not None:
+            return cls._model
 
-        # 先尝试从本地缓存加载
-        cached_path = _find_cached_snapshot(model_size)
-        if cached_path:
-            logger.info("使用本地缓存模型: %s -> %s", model_size, cached_path)
-            try:
-                cls._model = WhisperModel(
-                    cached_path,
-                    device="cpu",
-                    compute_type="int8",
-                    cpu_threads=cpu_threads,
-                    local_files_only=True,
-                )
-                logger.info("模型预下载完成（本地缓存）: %s", model_size)
+        with cls._model_lock:
+            if cls._model is not None:
                 return cls._model
-            except Exception:
-                logger.warning("本地缓存模型加载失败，尝试网络下载: %s", model_size)
 
-        # 本地缓存不可用，通过网络下载
-        hf_endpoint = os.environ.get("HF_ENDPOINT")
-        if hf_endpoint:
-            logger.info("使用 HF 镜像: %s", hf_endpoint)
+            logger.info(
+                "预下载模型: size=%s, device=cpu, compute_type=int8, cpu_threads=%d",
+                model_size, cpu_threads,
+            )
 
-        cls._model = WhisperModel(
-            model_size,
-            device="cpu",
-            compute_type="int8",
-            cpu_threads=cpu_threads,
-        )
-        logger.info("模型预下载完成: %s", model_size)
-        return cls._model
+            # 先尝试从本地缓存加载
+            cached_path = _find_cached_snapshot(model_size)
+            if cached_path:
+                logger.info("使用本地缓存模型: %s -> %s", model_size, cached_path)
+                try:
+                    cls._model = WhisperModel(
+                        cached_path,
+                        device="cpu",
+                        compute_type="int8",
+                        cpu_threads=cpu_threads,
+                        local_files_only=True,
+                    )
+                    logger.info("模型预下载完成（本地缓存）: %s", model_size)
+                    return cls._model
+                except Exception:
+                    logger.warning("本地缓存模型加载失败，尝试网络下载: %s", model_size)
+
+            # 本地缓存不可用，通过网络下载
+            hf_endpoint = os.environ.get("HF_ENDPOINT")
+            if hf_endpoint:
+                logger.info("使用 HF 镜像: %s", hf_endpoint)
+
+            cls._model = WhisperModel(
+                model_size,
+                device="cpu",
+                compute_type="int8",
+                cpu_threads=cpu_threads,
+            )
+            logger.info("模型预下载完成: %s", model_size)
+            return cls._model
 
     def transcribe(self, file_path: str) -> list[dict[str, Any]]:
         """执行语音转录，返回带时间戳的文本段列表。
