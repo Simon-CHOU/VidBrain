@@ -149,6 +149,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="ASR 后端 (默认: cpu)。vulkan 需要 whisper.cpp 编译 Vulkan 支持并设置 WHISPER_CLI_PATH")
     parser.add_argument("--profile", default="auto", choices=["auto", "idle", "active"],
         help="性能 Profile (默认: auto 自动切换)。idle=满负荷, active=省电降速")
+    parser.add_argument("--continuous", action="store_true",
+        help="流式持续处理：处理完一个视频立即取下一个，不等待间隔。与 --interval 互斥")
     parser.add_argument("--metrics-interval", type=int, default=3600,
         help="指标快照落盘间隔（秒，默认: 3600=1小时）")
     parser.add_argument("--metrics-export-dir", default="reports",
@@ -191,6 +193,7 @@ def build_config(args: argparse.Namespace) -> PipelineConfig:
         parallel_workers=args.parallel,
         asr_backend=args.asr_backend,
         profile=args.profile,
+        continuous=args.continuous,
     )
 
 
@@ -529,6 +532,24 @@ def process_approved_tasks(
     return count
 
 
+def _should_refine_streaming(cfg: PipelineConfig, video_count: int, last_refine_time: float) -> bool:
+    """流式模式：检查是否应触发自动精炼。"""
+    if cfg.auto_refine_every_hours > 0:
+        elapsed = time.time() - last_refine_time
+        return elapsed >= cfg.auto_refine_every_hours * 3600
+    return False
+
+
+def _should_refine_batches(cfg: PipelineConfig, batch_count: int, last_refine_time: float) -> bool:
+    """定时模式：检查是否应触发自动精炼。"""
+    if cfg.auto_refine_after > 0 and batch_count % cfg.auto_refine_after == 0:
+        return True
+    if cfg.auto_refine_every_hours > 0:
+        elapsed = time.time() - last_refine_time
+        return elapsed >= cfg.auto_refine_every_hours * 3600
+    return False
+
+
 def main(argv: list[str] | None = None) -> None:
     """主入口函数。"""
     args = parse_args(argv)
@@ -569,6 +590,13 @@ def main(argv: list[str] | None = None) -> None:
     from vidbrain.throttle import PerformanceProfile
     perf_profile = PerformanceProfile(mode=cfg.profile)
 
+    def _apply_profile_params():
+        """将当前 profile 的运行参数应用到 cfg。"""
+        params = perf_profile.get_params()
+        cfg.parallel_workers = params["parallel_workers"]
+        cfg.cpu_threads = params["cpu_threads_per_worker"]
+        cfg.video_cooldown = params["video_cooldown_seconds"]
+
     # 精炼模式
     if cfg.refine:
         if cfg.embedding_enabled:
@@ -591,10 +619,7 @@ def main(argv: list[str] | None = None) -> None:
     # 提前下载 ASR 模型（在首条任务处理之前完成下载，避免处理中途失败）
     # Profile 管理 parallel_workers 和 cpu_threads（auto 模式下动态调整）
     if perf_profile.mode == "auto":
-        params = perf_profile.get_params()
-        cfg.parallel_workers = params["parallel_workers"]
-        cfg.cpu_threads = params["cpu_threads_per_worker"]
-        cfg.video_cooldown = params["video_cooldown_seconds"]
+        _apply_profile_params()
     elif cfg.parallel_workers > 0:
         effective_threads = max(2, cfg.cpu_threads // cfg.parallel_workers)
         logger.info("并行模式: workers=%d, cpu_threads 调整为 %d (原 %d)",
@@ -709,11 +734,7 @@ def main(argv: list[str] | None = None) -> None:
         logger.info("单次模式完成")
         return
 
-    # 持续模式：定时调度
-    logger.info(
-        "持续模式已启动，间隔 %d 秒，每批 %d 个视频",
-        cfg.interval_seconds, cfg.batch_size,
-    )
+    # ── 持续/流式模式 ──
     executor = ThreadPoolExecutor(max_workers=max(1, cfg.parallel_workers))
 
     # 启动 watchdog 监听新文件
@@ -722,22 +743,22 @@ def main(argv: list[str] | None = None) -> None:
 
     last_metrics_flush = time.time()
     metrics_interval = args.metrics_interval
+    last_refine_time = time.time()
+    video_count = 0
 
-    # ── 安全信号处理：使用标志位而非在信号上下文中执行重操作 ──
+    # ── 安全信号处理 ──
     _shutdown_requested = False
 
     def request_shutdown(signum, frame):
-        """信号处理器：仅设置原子标志位，不执行任何重操作。"""
         nonlocal _shutdown_requested
         if not _shutdown_requested:
             _shutdown_requested = True
-            logger.info("收到关闭信号 (signal=%d)，将在当前批次完成后优雅退出...", signum)
+            logger.info("收到关闭信号 (signal=%d)，将在当前视频完成后优雅退出...", signum)
 
     signal.signal(signal.SIGINT, request_shutdown)
     signal.signal(signal.SIGTERM, request_shutdown)
 
     def do_graceful_shutdown():
-        """执行优雅退出：等待任务完成、保存指标、释放资源。"""
         logger.info("等待正在进行中的任务完成（最多 5 分钟）...")
         executor.shutdown(wait=True, cancel_futures=False)
         observer.stop()
@@ -750,75 +771,123 @@ def main(argv: list[str] | None = None) -> None:
         audit.system_event("shutdown", {"uptime_s": round(time.time() - metrics._start_time, 1)})
         logger.info("VidBrain 已优雅停止")
 
-    try:
+    if cfg.continuous:
+        # ── 流式模式：一个接一个，不停歇 ──
+        logger.info("流式持续模式已启动（处理完一个视频立即取下一个）")
+        try:
+            while True:
+                if _shutdown_requested:
+                    logger.info("执行优雅退出...")
+                    break
+
+                # 扫描新文件
+                classify_all_pending(db, cfg.input_dir)
+
+                # 取一个待处理任务
+                tasks = db.get_pending_tech_tasks(limit=1)
+                if not tasks:
+                    logger.debug("无待处理任务，30s 后重试")
+                    time.sleep(30)
+                    continue
+
+                # Profile 评估（每个视频前检查）
+                if perf_profile.mode == "auto":
+                    prev = perf_profile.current
+                    new_profile = perf_profile.evaluate()
+                    if new_profile != prev:
+                        _apply_profile_params()
+                        logger.info("Profile 参数已更新: workers=%d, cpu_threads=%d, cooldown=%ds",
+                                    cfg.parallel_workers, cfg.cpu_threads, cfg.video_cooldown)
+
+                # 处理单个视频
+                task = tasks[0]
+                process_pipeline(
+                    task["id"], task["video_name"], task["file_path"],
+                    db, asr_engine, llm_config, cfg,
+                    embedding_config=emb_config,
+                    embedding_store=emb_store,
+                )
+                video_count += 1
+                metrics.incr("total_processed")
+
+                # 定期落盘指标
+                now = time.time()
+                if now - last_metrics_flush >= metrics_interval:
+                    metrics.flush_to_db()
+                    metrics.dump_json(f"{args.metrics_export_dir}/metrics_snapshot.json")
+                    metrics.log_summary()
+                    last_metrics_flush = now
+
+                # 定期自动精炼
+                if _should_refine_streaming(cfg, video_count, last_refine_time):
+                    logger.info("自动触发知识库精炼")
+                    if cfg.embedding_enabled and emb_config is not None:
+                        emb_engine = _init_embedding_engine(emb_config)
+                        run_refine(cfg, emb_store, emb_engine)
+                    else:
+                        run_refine(cfg)
+                    last_refine_time = time.time()
+
+                # limit 检查
+                if cfg.limit > 0 and video_count >= cfg.limit:
+                    logger.info("已达到处理上限 %d，退出", cfg.limit)
+                    break
+
+        except KeyboardInterrupt:
+            request_shutdown(None, None)
+        finally:
+            do_graceful_shutdown()
+    else:
+        # ── 定时模式：按间隔批量处理（向后兼容） ──
+        logger.info("持续模式已启动，间隔 %d 秒，每批 %d 个视频",
+                     cfg.interval_seconds, cfg.batch_size)
         batch_count = 0
-        last_refine_time = time.time()
-        while True:
-            if _shutdown_requested:
-                logger.info("执行优雅退出...")
-                break
-            time.sleep(cfg.interval_seconds)
-            logger.info("定时触发: 开始新一批处理")
-            # 先分类新文件
-            classify_all_pending(db, cfg.input_dir)
-            # 再处理一批
-            batch_processed = process_batch(db, asr_engine, llm_config, cfg, emb_config, emb_store)
-            batch_count += 1
-            metrics.incr("batches_completed")
-            metrics.mark_event("last_batch_time")
+        try:
+            while True:
+                if _shutdown_requested:
+                    logger.info("执行优雅退出...")
+                    break
+                time.sleep(cfg.interval_seconds)
+                logger.info("定时触发: 开始新一批处理")
+                classify_all_pending(db, cfg.input_dir)
+                batch_processed = process_batch(db, asr_engine, llm_config, cfg, emb_config, emb_store)
+                batch_count += 1
+                metrics.incr("batches_completed")
+                metrics.mark_event("last_batch_time")
 
-            # Profile 评估：检查是否需要根据桌面状态切换性能模式
-            if perf_profile.mode == "auto":
-                prev = perf_profile.current
-                new_profile = perf_profile.evaluate()
-                if new_profile != prev:
-                    params = perf_profile.get_params()
-                    cfg.parallel_workers = params["parallel_workers"]
-                    cfg.cpu_threads = params["cpu_threads_per_worker"]
-                    cfg.video_cooldown = params["video_cooldown_seconds"]
-                    logger.info("Profile 参数已更新: workers=%d, cpu_threads=%d, cooldown=%ds",
-                                cfg.parallel_workers, cfg.cpu_threads, cfg.video_cooldown)
+                # Profile 评估
+                if perf_profile.mode == "auto":
+                    prev = perf_profile.current
+                    new_profile = perf_profile.evaluate()
+                    if new_profile != prev:
+                        _apply_profile_params()
+                        logger.info("Profile 参数已更新: workers=%d, cpu_threads=%d, cooldown=%ds",
+                                    cfg.parallel_workers, cfg.cpu_threads, cfg.video_cooldown)
 
-            # 定期落盘指标
-            now = time.time()
-            if now - last_metrics_flush >= metrics_interval:
-                metrics.flush_to_db()
-                metrics.dump_json(f"{args.metrics_export_dir}/metrics_snapshot.json")
-                metrics.log_summary()
-                last_metrics_flush = now
+                # 定期落盘指标
+                now = time.time()
+                if now - last_metrics_flush >= metrics_interval:
+                    metrics.flush_to_db()
+                    metrics.dump_json(f"{args.metrics_export_dir}/metrics_snapshot.json")
+                    metrics.log_summary()
+                    last_metrics_flush = now
 
-            # 检查是否需要自动精炼
-            need_refine = False
-            refine_reason = ""
-            if cfg.auto_refine_after > 0 and batch_count % cfg.auto_refine_after == 0:
-                need_refine = True
-                refine_reason = f"已处理 {batch_count} 批"
-            elif cfg.auto_refine_every_hours > 0:
-                elapsed = time.time() - last_refine_time
-                if elapsed >= cfg.auto_refine_every_hours * 3600:
-                    need_refine = True
-                    refine_reason = f"距上次精炼已过 {elapsed / 3600:.1f} 小时"
+                # 定期自动精炼
+                if _should_refine_batches(cfg, batch_count, last_refine_time):
+                    logger.info("自动触发知识库精炼")
+                    if cfg.embedding_enabled and emb_config is not None:
+                        emb_engine = _init_embedding_engine(emb_config)
+                        run_refine(cfg, emb_store, emb_engine)
+                    else:
+                        run_refine(cfg)
+                    last_refine_time = time.time()
 
-            if need_refine:
-                logger.info("自动触发知识库精炼: %s", refine_reason)
-                if cfg.embedding_enabled and emb_config is not None:
-                    emb_engine = _init_embedding_engine(emb_config)
-                    run_refine(cfg, emb_store, emb_engine)
-                else:
-                    run_refine(cfg)
-                last_refine_time = time.time()
-        # 正常退出（如 interval=0 的单次模式会到此处）
-        metrics.log_summary()
-        metrics.flush_to_db()
-        metrics.dump_json(f"{args.metrics_export_dir}/metrics_final.json")
-        if args.audit_export:
-            audit.dump_json(f"{args.metrics_export_dir}/audit_final.json")
-        audit.system_event("shutdown", {"reason": "completed"})
-    except KeyboardInterrupt:
-        request_shutdown(None, None)
-    finally:
-        # 持续模式下的优雅退出
-        if cfg.interval_seconds > 0:
+                if cfg.limit > 0 and batch_count * cfg.batch_size >= cfg.limit:
+                    logger.info("已达到处理上限，退出")
+                    break
+        except KeyboardInterrupt:
+            request_shutdown(None, None)
+        finally:
             do_graceful_shutdown()
 
 

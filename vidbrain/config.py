@@ -84,6 +84,7 @@ class PipelineConfig:
     parallel_workers: int = 0  # 并行处理视频数（0=串行，推荐 2-3）
     asr_backend: str = "cpu"  # ASR 后端: cpu (faster-whisper) 或 vulkan (whisper.cpp Vulkan)
     profile: str = "auto"  # 性能 Profile: auto (自动切换) / idle (满负荷) / active (省电)
+    continuous: bool = False  # 流式持续处理：处理完一个立即取下一个，不等待间隔
 
 
 @dataclass
