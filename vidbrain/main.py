@@ -25,6 +25,7 @@ from vidbrain.db import DatabaseManager
 from vidbrain.logger import setup_logger
 from vidbrain.metrics import get_metrics
 from vidbrain.pipeline import process_pipeline
+from vidbrain.singleton import acquire_singleton
 from vidbrain.watcher import start_watcher
 
 logger = logging.getLogger("vidbrain")
@@ -537,6 +538,9 @@ def main(argv: list[str] | None = None) -> None:
     # 初始化日志
     setup_logger()
     logger.info("VidBrain 启动")
+
+    # 进程级单实例锁（必须在启动任何重量级操作前获取）
+    acquire_singleton()
 
     # 初始化数据库
     db = DatabaseManager(cfg.db_path)
