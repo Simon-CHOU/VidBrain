@@ -83,6 +83,7 @@ class PipelineConfig:
     embedding_enabled: bool = False  # 启用 embedding 语义检索和聚类
     parallel_workers: int = 0  # 并行处理视频数（0=串行，推荐 2-3）
     asr_backend: str = "cpu"  # ASR 后端: cpu (faster-whisper) 或 vulkan (whisper.cpp Vulkan)
+    profile: str = "auto"  # 性能 Profile: auto (自动切换) / idle (满负荷) / active (省电)
 
 
 @dataclass

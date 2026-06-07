@@ -147,6 +147,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="并行处理的视频数（0=串行，推荐 2-3，利用空闲 RAM 和 CPU 余量）")
     parser.add_argument("--asr-backend", default="cpu", choices=["cpu", "vulkan"],
         help="ASR 后端 (默认: cpu)。vulkan 需要 whisper.cpp 编译 Vulkan 支持并设置 WHISPER_CLI_PATH")
+    parser.add_argument("--profile", default="auto", choices=["auto", "idle", "active"],
+        help="性能 Profile (默认: auto 自动切换)。idle=满负荷, active=省电降速")
     parser.add_argument("--metrics-interval", type=int, default=3600,
         help="指标快照落盘间隔（秒，默认: 3600=1小时）")
     parser.add_argument("--metrics-export-dir", default="reports",
@@ -188,6 +190,7 @@ def build_config(args: argparse.Namespace) -> PipelineConfig:
         embedding_enabled=args.embedding,
         parallel_workers=args.parallel,
         asr_backend=args.asr_backend,
+        profile=args.profile,
     )
 
 
@@ -562,9 +565,9 @@ def main(argv: list[str] | None = None) -> None:
                                     "config": str(cfg)})
     logger.info("审计日志系统已初始化")
 
-    # 设置进程优先级
-    from vidbrain.throttle import set_low_priority
-    set_low_priority(cfg.priority_level)
+    # 设置进程优先级（由 profile 管理）
+    from vidbrain.throttle import PerformanceProfile
+    perf_profile = PerformanceProfile(mode=cfg.profile)
 
     # 精炼模式
     if cfg.refine:
@@ -586,8 +589,13 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(1)
 
     # 提前下载 ASR 模型（在首条任务处理之前完成下载，避免处理中途失败）
-    # 并行模式下按比例缩减线程数，避免过多的并发线程导致上下文切换开销
-    if cfg.parallel_workers > 0:
+    # Profile 管理 parallel_workers 和 cpu_threads（auto 模式下动态调整）
+    if perf_profile.mode == "auto":
+        params = perf_profile.get_params()
+        cfg.parallel_workers = params["parallel_workers"]
+        cfg.cpu_threads = params["cpu_threads_per_worker"]
+        cfg.video_cooldown = params["video_cooldown_seconds"]
+    elif cfg.parallel_workers > 0:
         effective_threads = max(2, cfg.cpu_threads // cfg.parallel_workers)
         logger.info("并行模式: workers=%d, cpu_threads 调整为 %d (原 %d)",
                     cfg.parallel_workers, effective_threads, cfg.cpu_threads)
@@ -758,6 +766,18 @@ def main(argv: list[str] | None = None) -> None:
             batch_count += 1
             metrics.incr("batches_completed")
             metrics.mark_event("last_batch_time")
+
+            # Profile 评估：检查是否需要根据桌面状态切换性能模式
+            if perf_profile.mode == "auto":
+                prev = perf_profile.current
+                new_profile = perf_profile.evaluate()
+                if new_profile != prev:
+                    params = perf_profile.get_params()
+                    cfg.parallel_workers = params["parallel_workers"]
+                    cfg.cpu_threads = params["cpu_threads_per_worker"]
+                    cfg.video_cooldown = params["video_cooldown_seconds"]
+                    logger.info("Profile 参数已更新: workers=%d, cpu_threads=%d, cooldown=%ds",
+                                cfg.parallel_workers, cfg.cpu_threads, cfg.video_cooldown)
 
             # 定期落盘指标
             now = time.time()

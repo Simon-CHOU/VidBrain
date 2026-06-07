@@ -1,13 +1,17 @@
 """
-资源调控模块：进程优先级 + 线程优先级 + 冷却间隔。
+资源调控模块：进程优先级 + 线程优先级 + 冷却间隔 + 动态性能 Profile。
 
 仅在 Windows 上生效；非 Windows 平台会静默降级。
+
+动态 Profile 通过检测桌面空闲状态自动在"满负荷"和"省电"模式间切换。
 """
 
 from __future__ import annotations
 
 import ctypes
+import enum
 import logging
+import multiprocessing
 import time
 
 logger = logging.getLogger("vidbrain.throttle")
@@ -26,6 +30,183 @@ _LEVEL_MAP: dict[str, int] = {
     "idle": _IDLE,
     "normal": _NORMAL,
 }
+
+# ── 桌面空闲检测 ──
+USER_IDLE_THRESHOLD_SECONDS = 300  # 5 分钟
+_IDLE_DETECTION_INTERVAL = 60      # 检测间隔（秒）
+
+
+class _LASTINPUTINFO(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", ctypes.c_uint),
+        ("dwTime", ctypes.c_uint),
+    ]
+
+
+def get_user_idle_seconds() -> int | None:
+    """获取用户距离最后一次键盘/鼠标输入的秒数。
+
+    通过 Windows GetLastInputInfo API 检测。
+    非 Windows 平台返回 None（不可用）。
+
+    Returns:
+        空闲秒数，或 None 表示不可用。
+    """
+    try:
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+    except (AttributeError, OSError):
+        return None
+
+    lii = _LASTINPUTINFO()
+    lii.cbSize = ctypes.sizeof(_LASTINPUTINFO)
+
+    if not user32.GetLastInputInfo(ctypes.byref(lii)):
+        return None
+
+    tick_count = kernel32.GetTickCount()
+    return int((tick_count - lii.dwTime) / 1000)
+
+
+# ── 动态性能 Profile ──
+
+class Profile(enum.Enum):
+    """性能 Profile 枚举。"""
+    IDLE = "idle"      # 无人值守：满负荷
+    ACTIVE = "active"  # 桌面活跃：省电降速
+
+
+# Profile 参数映射
+_PROFILE_PARAMS: dict[Profile, dict] = {
+    Profile.IDLE: {
+        "priority": "normal",
+        "parallel_workers": 2,
+        "cpu_threads_per_worker": max(2, multiprocessing.cpu_count() - 1),
+        "video_cooldown_seconds": 0,
+        "label": "满负荷模式",
+    },
+    Profile.ACTIVE: {
+        "priority": "below_normal",
+        "parallel_workers": 1,
+        "cpu_threads_per_worker": 2,
+        "video_cooldown_seconds": 10,
+        "label": "省电模式",
+    },
+}
+
+
+class PerformanceProfile:
+    """动态性能管理状态机。
+
+    检测桌面空闲状态，自动在 idle（满负荷）和 active（省电）之间切换。
+    支持固定模式（--profile idle|active）和自动模式（--profile auto）。
+    """
+
+    def __init__(self, mode: str = "auto") -> None:
+        """
+        Args:
+            mode: "auto"（自动切换）, "idle"（固定满负荷）, "active"（固定省电）
+        """
+        self._mode = mode  # "auto" | "idle" | "active"
+        self._current: Profile = Profile.IDLE
+        self._consecutive_idle_checks: int = 0
+        self._last_evaluation_time: float = 0.0
+
+        # 固定模式直接设置
+        if mode == "active":
+            self._current = Profile.ACTIVE
+        elif mode == "idle":
+            self._current = Profile.IDLE
+
+        self.apply(self._current)
+        logger.info("性能 Profile: %s — %s",
+                     self._current.value,
+                     _PROFILE_PARAMS[self._current]["label"])
+
+    @property
+    def current(self) -> Profile:
+        return self._current
+
+    @property
+    def mode(self) -> str:
+        return self._mode
+
+    def evaluate(self, now: float | None = None) -> Profile:
+        """评估当前应该使用的 profile。
+
+        仅在 auto 模式下检测桌面空闲状态并切换。
+        固定模式始终返回固定 profile。
+
+        Args:
+            now: 当前时间戳（用于去抖），默认 time.time()
+
+        Returns:
+            应使用的 Profile 枚举值。
+        """
+        if now is None:
+            now = time.time()
+
+        # 固定模式不切换
+        if self._mode != "auto":
+            return self._current
+
+        # 限制检测频率
+        if now - self._last_evaluation_time < _IDLE_DETECTION_INTERVAL:
+            return self._current
+        self._last_evaluation_time = now
+
+        idle_seconds = get_user_idle_seconds()
+        if idle_seconds is None:
+            # 非 Windows：固定 idle
+            if self._current != Profile.IDLE:
+                self._switch_to(Profile.IDLE, "桌面空闲检测不可用，固定为 idle profile")
+            return self._current
+
+        if idle_seconds < USER_IDLE_THRESHOLD_SECONDS:
+            # 桌面活跃 → active
+            self._consecutive_idle_checks = 0
+            if self._current != Profile.ACTIVE:
+                self._switch_to(Profile.ACTIVE,
+                                f"检测到桌面活跃 (空闲 {idle_seconds}s < {USER_IDLE_THRESHOLD_SECONDS}s)")
+        else:
+            # 桌面闲置 → 需要连续确认
+            self._consecutive_idle_checks += 1
+            if self._consecutive_idle_checks >= 2 and self._current != Profile.IDLE:
+                self._switch_to(Profile.IDLE,
+                                f"桌面闲置 ≥ {USER_IDLE_THRESHOLD_SECONDS}s "
+                                f"(确认 {self._consecutive_idle_checks} 次)")
+
+        return self._current
+
+    def apply(self, profile: Profile) -> None:
+        """应用 profile 的进程优先级设置。"""
+        params = _PROFILE_PARAMS[profile]
+        set_low_priority(params["priority"])
+
+    def get_params(self, profile: Profile | None = None) -> dict:
+        """获取 profile 的运行参数。
+
+        Args:
+            profile: 目标 profile，默认当前 profile
+
+        Returns:
+            包含 priority, parallel_workers, cpu_threads_per_worker,
+            video_cooldown_seconds 的字典。
+        """
+        return dict(_PROFILE_PARAMS[profile or self._current])
+
+    def _switch_to(self, new_profile: Profile, reason: str) -> None:
+        """执行 profile 切换。"""
+        old = self._current
+        self._current = new_profile
+        self.apply(new_profile)
+        params = _PROFILE_PARAMS[new_profile]
+        logger.info("性能 Profile 切换: %s → %s (%s)",
+                     old.value, new_profile.value, reason)
+
+    def is_idle_active(self) -> bool:
+        """当前是否处于 idle（满负荷）状态。"""
+        return self._current == Profile.IDLE
 
 
 def set_low_priority(level: str = "below_normal") -> bool:
