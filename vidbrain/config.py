@@ -22,9 +22,11 @@ from dataclasses import dataclass, field
 # ── 确保模型缓存位于项目内部 ──
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _MODEL_CACHE = str(_PROJECT_ROOT / ".model_cache")
-os.environ.setdefault("HF_HOME", _MODEL_CACHE)
-os.environ.setdefault("HF_HUB_CACHE", _MODEL_CACHE)
-os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+os.environ["HF_HOME"] = _MODEL_CACHE
+os.environ["HF_HUB_CACHE"] = _MODEL_CACHE
+# 强制使用 HF 镜像，避免国内网络 SSL 阻断问题
+# 注意：使用直接赋值而非 setdefault，确保覆盖任何已存在的环境变量
+os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
 
 @dataclass
