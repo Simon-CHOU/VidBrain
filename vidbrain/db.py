@@ -233,16 +233,6 @@ class DatabaseManager:
                 ).fetchall()
                 return [(r[0], r[1], r[2]) for r in rows]
 
-    def get_failed_retryable(self) -> list[dict]:
-        """获取可重试的失败任务（retry_count < 3 的 FAILED 状态）。"""
-        with self._lock:
-            with sqlite3.connect(self._db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                rows = conn.execute(
-                    "SELECT * FROM video_pipeline WHERE status='FAILED' AND COALESCE(retry_count, 0) < 3"
-                ).fetchall()
-                return [dict(r) for r in rows]
-
     def increment_retry(self, video_id: str, error_msg: str) -> int:
         """失败时自增重试计数，返回新的重试次数。若已达上限则返回 -1。"""
         with self._lock:
@@ -269,6 +259,24 @@ class DatabaseManager:
                     (video_id,),
                 )
                 conn.commit()
+
+    def recover_stuck_tasks(self) -> int:
+        """将卡在中间状态的任务恢复为 PENDING，实现断点续运行。
+
+        异常退出后，任务可能卡在 ASR_PROCESSING 或 AGENT_PROCESSING。
+        此方法在启动时调用，将它们重置为 PENDING 以便重新处理。
+
+        Returns:
+            被恢复的任务数量。
+        """
+        with self._lock:
+            with sqlite3.connect(self._db_path) as conn:
+                cursor = conn.execute(
+                    "UPDATE video_pipeline SET status='PENDING' "
+                    "WHERE status IN ('ASR_PROCESSING', 'AGENT_PROCESSING', 'AGENT_DONE')"
+                )
+                conn.commit()
+                return cursor.rowcount
 
     def update_status_by_name(self, video_stem: str, status: str) -> bool:
         """通过视频文件名 stem 匹配更新状态（用于草稿发布/删除回调）。

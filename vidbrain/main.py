@@ -276,25 +276,21 @@ def process_batch(
 
     当 cfg.parallel_workers > 0 时，使用线程池并行处理多个视频，
     利用空闲 RAM 换取吞吐量提升。
-    """
-    # 先收集所有待处理任务
-    retryable = db.get_failed_retryable()
-    if retryable:
-        logger.info("发现 %d 个可重试的失败任务，将自动重试", len(retryable))
 
+    重试机制：失败的任务由 process_pipeline 自动重置为 PENDING，
+    下次 process_batch 自然拾取重试，最多 3 次后转为 PERMANENTLY_FAILED。
+    """
     tasks = db.get_pending_tech_tasks(limit=cfg.batch_size)
-    if not tasks and not retryable:
+    if not tasks:
         logger.info("没有待处理的 tech 视频")
         return 0
 
-    all_tasks = list(retryable) + list(tasks)
-    total = len(all_tasks)
-    n_retryable = len(retryable)
+    total = len(tasks)
 
     if cfg.parallel_workers <= 0:
         # ── 串行模式 ──
         logger.info("本批处理 %d 个 tech 视频 (串行)", total)
-        for task in all_tasks:
+        for task in tasks:
             process_pipeline(
                 task["id"], task["video_name"], task["file_path"],
                 db, asr_engine, llm_config, cfg,
@@ -310,7 +306,7 @@ def process_batch(
         logger.info("本批处理 %d 个 tech 视频 (并行, workers=%d)", total, workers)
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {}
-            for task in all_tasks:
+            for task in tasks:
                 future = executor.submit(
                     process_pipeline,
                     task["id"], task["video_name"], task["file_path"],
@@ -547,6 +543,13 @@ def main(argv: list[str] | None = None) -> None:
     db.init_db()
     logger.info("数据库已初始化: %s", cfg.db_path)
 
+    # 从异常中断恢复：将卡在中间状态的任务重置为 PENDING
+    recovered = db.recover_stuck_tasks()
+    if recovered > 0:
+        logger.warning("从异常中断恢复: 重置了 %d 个卡住的任务为 PENDING", recovered)
+    else:
+        logger.info("启动恢复检查: 无卡住任务")
+
     # 初始化 Metrics 系统
     metrics = get_metrics()
     metrics.bind_db(db, cfg.db_path)
@@ -712,29 +715,40 @@ def main(argv: list[str] | None = None) -> None:
     last_metrics_flush = time.time()
     metrics_interval = args.metrics_interval
 
-    def shutdown(signum, frame):
-        logger.info("收到关闭信号，正在停止...")
-        # 最终指标落盘
+    # ── 安全信号处理：使用标志位而非在信号上下文中执行重操作 ──
+    _shutdown_requested = False
+
+    def request_shutdown(signum, frame):
+        """信号处理器：仅设置原子标志位，不执行任何重操作。"""
+        nonlocal _shutdown_requested
+        if not _shutdown_requested:
+            _shutdown_requested = True
+            logger.info("收到关闭信号 (signal=%d)，将在当前批次完成后优雅退出...", signum)
+
+    signal.signal(signal.SIGINT, request_shutdown)
+    signal.signal(signal.SIGTERM, request_shutdown)
+
+    def do_graceful_shutdown():
+        """执行优雅退出：等待任务完成、保存指标、释放资源。"""
+        logger.info("等待正在进行中的任务完成（最多 5 分钟）...")
+        executor.shutdown(wait=True, cancel_futures=False)
+        observer.stop()
+        observer.join(timeout=10)
         metrics.log_summary()
         metrics.flush_to_db()
         metrics.dump_json(f"{args.metrics_export_dir}/metrics_final.json")
-        # 审计日志导出
         if args.audit_export:
             audit.dump_json(f"{args.metrics_export_dir}/audit_final.json")
         audit.system_event("shutdown", {"uptime_s": round(time.time() - metrics._start_time, 1)})
-        observer.stop()
-        executor.shutdown(wait=False)
-        observer.join()
-        logger.info("VidBrain 已停止")
-        sys.exit(0)
-
-    signal.signal(signal.SIGINT, shutdown)
-    signal.signal(signal.SIGTERM, shutdown)
+        logger.info("VidBrain 已优雅停止")
 
     try:
         batch_count = 0
         last_refine_time = time.time()
         while True:
+            if _shutdown_requested:
+                logger.info("执行优雅退出...")
+                break
             time.sleep(cfg.interval_seconds)
             logger.info("定时触发: 开始新一批处理")
             # 先分类新文件
@@ -781,7 +795,11 @@ def main(argv: list[str] | None = None) -> None:
             audit.dump_json(f"{args.metrics_export_dir}/audit_final.json")
         audit.system_event("shutdown", {"reason": "completed"})
     except KeyboardInterrupt:
-        shutdown(None, None)
+        request_shutdown(None, None)
+    finally:
+        # 持续模式下的优雅退出
+        if cfg.interval_seconds > 0:
+            do_graceful_shutdown()
 
 
 if __name__ == "__main__":

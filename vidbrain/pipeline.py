@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
+import shutil
+import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
@@ -169,6 +172,14 @@ def process_pipeline(
         m.record_duration("agent_duration", agent_elapsed)
         logger.info("[Pipeline] Agent 处理完成: %s (%.1fs)", video_name, agent_elapsed)
 
+        # Agent 结果持久化：合并 ASR 段和 final_markdown 写入 DB
+        # 确保即使随后崩溃也不丢失已消耗 Token 生成的 Agent 输出
+        db.update_status(video_id, "AGENT_DONE", raw_asr=json.dumps({
+            "asr_segments": asr_data,
+            "final_markdown": final_state["final_markdown"],
+        }, ensure_ascii=False))
+        logger.info("[Pipeline] Agent 结果已持久化: %s", video_name)
+
         # Step 4: 写入 Obsidian Vault（永远不修改 input_dir 下的文件）
         logger.info("[Pipeline] 阶段 4/4 - 写入知识库: %s", video_name)
         output_file_name = f"{Path(video_name).stem}.md"
@@ -196,10 +207,24 @@ def process_pipeline(
                 f"---\n\n"
             )
             full_content = front_matter + final_state["final_markdown"]
-            output_path.write_text(full_content, encoding="utf-8")
+
+            # 原子写入：先写临时文件，再 rename，防止输出半截文件
+            output_stem = Path(output_file_name).stem
+            fd, tmp_path = tempfile.mkstemp(
+                dir=str(vault_path), suffix=".md", prefix=".vidbrain_tmp_"
+            )
+            os.close(fd)
+            try:
+                Path(tmp_path).write_text(full_content, encoding="utf-8")
+                shutil.move(tmp_path, str(output_path))
+            except Exception:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
 
             # 增量更新 Vault 缓存
-            output_stem = Path(output_file_name).stem
             vault_cache.add_note(cfg.vault_dir, output_stem, full_content)
 
             db.update_status(video_id, "SUCCESS")
