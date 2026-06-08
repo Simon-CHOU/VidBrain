@@ -31,21 +31,14 @@ jobs:
       - name: Check code formatting with black
         run: black --check src/ tests/
 
-      - name: Check import ordering with isort
-        run: isort --check-only src/ tests/
-
-      - name: Lint with flake8
-        run: "flake8 src/ --max-complexity=10 --extend-ignore=E203,E501,W503"
+      - name: Lint with ruff
+        run: ruff check src/ tests/
 
       - name: Lint with pylint
         run: "pylint src/ --fail-under=7.0 --max-line-length=100 || true"
 
       - name: Type check with mypy
         run: "mypy src/ --ignore-missing-imports || true"
-
-      - name: Check McCabe complexity
-        run: |
-          find src/ -name "*.py" -exec python -m mccabe --min 10 {} + || echo "McCabe: complexity issues found (threshold=10)"
 
       - name: Run tests with coverage
         run: |

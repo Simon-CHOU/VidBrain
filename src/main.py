@@ -16,7 +16,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from src.cli import build_config, parse_args, parse_interval
+from src.cli import build_config, parse_args
 from src.models.config import LLMConfig, PipelineConfig
 from src.services.asr_service import ASREngine
 from src.services.classifier_service import classify_video
@@ -332,7 +332,7 @@ def review_queue(db: DatabaseManager, batch_size: int) -> list[str]:
             db.classify_task(task["id"], "skip", "人工审批: 拒绝")
             logger.info("  -> 拒绝")
         elif choice == "*":
-            for t in tasks[idx - 1:]:
+            for t in tasks[idx - 1 :]:
                 approved.append(t["id"])
             logger.info("  -> 全部通过 (%d 个)", len(tasks) - idx + 1)
             break
@@ -375,7 +375,7 @@ def review_drafts_vault(cfg: PipelineConfig, db: DatabaseManager) -> None:
             db.update_status_by_name(stem, "DISCARDED")
             logger.info("  -> 已删除")
         elif choice == "*":
-            for dn in drafts[idx - 1:]:
+            for dn in drafts[idx - 1 :]:
                 publish_draft(cfg.vault_dir, dn)
                 db.update_status_by_name(Path(dn).stem, "SUCCESS")
             logger.info("  -> 全部发布 (%d 篇)", len(drafts) - idx + 1)

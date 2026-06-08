@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import tempfile
 from pathlib import Path
 from typing import Generator
@@ -10,7 +9,7 @@ from typing import Generator
 import pytest
 
 # Import from src modules
-from src.models.config import EmbeddingConfig, LLMConfig, PipelineConfig
+from src.models.config import PipelineConfig
 
 
 @pytest.fixture

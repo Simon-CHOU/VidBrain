@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from src.cli import parse_args, parse_interval
 
 

@@ -4,8 +4,6 @@ SQLite 数据库操作。
 线程安全封装，管理视频处理任务的状态机流转。
 """
 
-# flake8: noqa: E501  # SQL statements inherently have long lines
-
 from __future__ import annotations
 
 import sqlite3

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from src.services.pipeline_service import _compute_quality_score
 
 

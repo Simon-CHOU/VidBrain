@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 
 import pytest
-
 from src.models.config import EmbeddingConfig, LLMConfig, PipelineConfig
 
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from src.services.classifier_service import classify_video
 
 

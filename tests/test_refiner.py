@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
 from src.services.refiner_service import analyze_links, parse_links
 
 

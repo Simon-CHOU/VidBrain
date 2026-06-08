@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
-
 from src.services.embedding_service import _kmeans
 
 

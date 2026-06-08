@@ -32,11 +32,9 @@ dev = [
     "pytest-cov>=5.0",
     "pytest-mock>=3.14",
     "black>=24.0",
-    "flake8>=7.0",
+    "ruff>=0.8.0",
     "pylint>=3.0",
-    "mccabe>=0.7.0",
     "mypy>=1.10",
-    "isort>=5.13",
 ]
 
 [tool.setuptools.packages.find]
@@ -56,11 +54,6 @@ extend-exclude = '''
   | dist
 )/
 '''
-
-[tool.isort]
-profile = "black"
-line_length = 100
-src_paths = ["src", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -91,7 +84,7 @@ exclude = ["tests/", "src/main.py"]
 [tool.pylint.messages_control]
 max-line-length = 100
 disable = [
-    "C0114",  # missing-module-docstring (handled by flake8)
+    "C0114",  # missing-module-docstring (handled by Ruff)
     "C0115",  # missing-class-docstring
     "R0903",  # too-few-public-methods (dataclasses 常见)
 ]
@@ -99,8 +92,15 @@ disable = [
 [tool.pylint.format]
 max-line-length = 100
 
-[tool.flake8]
-max-line-length = 100
-max-complexity = 10
-extend-ignore = ["E203", "E501", "W503"]
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
 exclude = [".git", ".venv", "__pycache__", ".mypy_cache", ".pytest_cache", "build", "dist"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "C90"]
+ignore = ["E203", "E501"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
