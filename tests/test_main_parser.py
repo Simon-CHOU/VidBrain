@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.main import parse_args, parse_interval
+from src.cli import parse_args, parse_interval
 
 
 class TestParseInterval:
