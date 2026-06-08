@@ -34,6 +34,11 @@ smoke_test_vault/
 
 # pytest
 .pytest_cache/
+.coverage
+htmlcov/
+
+# mypy
+.mypy_cache/
 
 # Environment files (if any)
 .env

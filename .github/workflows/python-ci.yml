@@ -34,14 +34,14 @@ jobs:
       - name: Check import ordering with isort
         run: isort --check-only src/ tests/
 
-      - name: Lint with flake8 (complexity threshold: 10)
-        run: flake8 src/ --max-complexity=10 --extend-ignore=E203,E501,W503
+      - name: Lint with flake8
+        run: "flake8 src/ --max-complexity=10 --extend-ignore=E203,E501,W503"
 
       - name: Lint with pylint
-        run: pylint src/ --fail-under=7.0 --max-line-length=100 || true
+        run: "pylint src/ --fail-under=7.0 --max-line-length=100 || true"
 
       - name: Type check with mypy
-        run: mypy src/ --ignore-missing-imports || true
+        run: "mypy src/ --ignore-missing-imports || true"
 
       - name: Check McCabe complexity
         run: |
