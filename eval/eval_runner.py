@@ -31,14 +31,18 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from openai import OpenAI
+from openai import OpenAI  # noqa: E402
+from src.models.config import EmbeddingConfig, LLMConfig, PipelineConfig  # noqa: E402
+from src.services.asr_service import ASREngine  # noqa: E402
+from src.services.pipeline_service import process_pipeline  # noqa: E402
+from src.utils.db import DatabaseManager  # noqa: E402
 
-from src.models.config import EmbeddingConfig, LLMConfig, PipelineConfig
-from src.services.asr_service import ASREngine
-from src.services.pipeline_service import process_pipeline
-from src.utils.db import DatabaseManager
-from eval.reviewer_prompt import build_system_prompt, build_user_message, parse_review_response
-from eval.aggregator import VideoPairResult, aggregate_results, decide_merge
+from eval.aggregator import VideoPairResult, aggregate_results, decide_merge  # noqa: E402
+from eval.reviewer_prompt import (  # noqa: E402
+    build_system_prompt,
+    build_user_message,
+    parse_review_response,
+)
 
 logger = logging.getLogger("vidbrain.eval")
 logging.basicConfig(

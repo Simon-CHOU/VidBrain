@@ -2,6 +2,7 @@
 LLM Reviewer prompt templates and response parsing.
 """
 from __future__ import annotations
+
 import json
 import logging
 import re
@@ -150,6 +151,14 @@ _VALID_SCORES = {1, 2, 3, 4, 5}
 _VALID_PREFERENCES = {"A", "B", "持平"}
 
 
+def _validate_score_dim(data: dict, dim: str) -> bool:
+    """Check that both sides have valid scores for a dimension."""
+    for side in ("笔记A", "笔记B"):
+        if data[dim].get(side, {}).get("分") not in _VALID_SCORES:
+            return False
+    return True
+
+
 def parse_review_response(raw: str) -> dict | None:
     cleaned = raw.strip()
     m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", cleaned, re.DOTALL)
@@ -164,15 +173,12 @@ def parse_review_response(raw: str) -> dict | None:
         missing = _REQUIRED_KEYS - data.keys()
         logger.warning("Reviewer JSON 缺少字段: %s", missing)
         return None
-    for side in ("笔记A", "笔记B"):
-        if data["score_a"].get(side, {}).get("分") not in _VALID_SCORES:
-            return None
-    for side in ("笔记A", "笔记B"):
-        if data["score_b"].get(side, {}).get("分") not in _VALID_SCORES:
-            return None
-    for side in ("笔记A", "笔记B"):
-        if data["score_c"].get(side, {}).get("分") not in _VALID_SCORES:
-            return None
+    if not _validate_score_dim(data, "score_a"):
+        return None
+    if not _validate_score_dim(data, "score_b"):
+        return None
+    if not _validate_score_dim(data, "score_c"):
+        return None
     if data["score_d"].get("偏好") not in _VALID_PREFERENCES:
         return None
     return data
