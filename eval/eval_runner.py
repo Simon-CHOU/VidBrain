@@ -124,7 +124,7 @@ def run_single_pipeline(
     video_id = Path(video_path).stem
 
     db = DatabaseManager(db_path)
-    db.upsert_video(video_id, video_name, str(video_path))
+    db.create_task(video_id, video_name, str(video_path))
 
     cpu_count = os.cpu_count() or 4
     cfg = PipelineConfig(
