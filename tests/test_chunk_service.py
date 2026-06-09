@@ -1,8 +1,11 @@
 """Tests for chunk_service — chunk splitting and ChunkStore."""
 from __future__ import annotations
 
+import numpy as np
 import pytest
-from src.services.chunk_service import chunk_note_content
+from unittest.mock import MagicMock
+
+from src.services.chunk_service import ChunkStore, chunk_note_content
 
 
 class TestChunkNoteContent:
@@ -70,12 +73,6 @@ class TestChunkNoteContent:
         assert len(chunks) == 1
         assert chunks[0]["content"] == "(empty)"
         assert chunks[0]["token_count"] == 1
-
-
-import numpy as np
-from unittest.mock import MagicMock
-
-from src.services.chunk_service import ChunkStore
 
 
 class TestChunkStore:
@@ -152,7 +149,7 @@ class TestChunkStore:
             encoding="utf-8",
         )
         (tmp_path / "AlsoUnchunked.md").write_text("Minimal note.", encoding="utf-8")
-        unchunked = store.get_unchunked_notes(str(tmp_path))
+        unchunked = store.get_unchunked_notes()
         assert len(unchunked) >= 2
         names = [n for n, _ in unchunked]
         assert "Unchunked" in names
@@ -169,7 +166,7 @@ class TestChunkStore:
             "## Content\nDifferent content with sufficient length to be meaningful.",
             encoding="utf-8",
         )
-        unchunked = store.get_unchunked_notes(str(tmp_path))
+        unchunked = store.get_unchunked_notes()
         names = [n for n, _ in unchunked]
         assert "Indexed" not in names
         assert "NotIndexed" in names

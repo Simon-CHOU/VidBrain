@@ -9,8 +9,15 @@ from __future__ import annotations
 
 import logging
 import re
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+import numpy as np
+
+if TYPE_CHECKING:
+    from src.services.embedding_service import EmbeddingEngine
 
 logger = logging.getLogger("vidbrain.chunk")
 
@@ -190,9 +197,6 @@ class ChunkStore:
     VECTOR_DIM = 1024
 
     def __init__(self, vault_path: str) -> None:
-        import sqlite3
-        import numpy as np
-
         self._vault = Path(vault_path)
         self._db_path = self._vault / self.DB_FILENAME
         self._npy_path = self._vault / self.NPY_FILENAME
@@ -231,11 +235,8 @@ class ChunkStore:
 
     # ── public API ─────────────────────────────────────────────────
 
-    def chunk_note(self, note_name: str, content: str, engine) -> None:
+    def chunk_note(self, note_name: str, content: str, engine: "EmbeddingEngine") -> None:
         """Chunk a note, embed all chunks, and write to index. Replaces existing chunks."""
-        import numpy as np
-
-        self.remove_note(note_name)
         chunks = chunk_note_content(content)
         if not chunks:
             return
@@ -262,19 +263,26 @@ class ChunkStore:
         if note_path.exists():
             note_mtime = note_path.stat().st_mtime
 
-        for i, c in enumerate(chunks):
-            prev_id = chunk_ids[i - 1] if i > 0 else None
-            next_id = chunk_ids[i + 1] if i < len(chunks) - 1 else None
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
             self._conn.execute(
-                """INSERT INTO chunk_index
-                   (chunk_id, note_name, note_mtime, chunk_index,
-                    prev_chunk_id, next_chunk_id, content, token_count)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (chunk_ids[i], note_name, note_mtime, i,
-                 prev_id, next_id, c["content"], c["token_count"]),
+                "DELETE FROM chunk_index WHERE note_name = ?", (note_name,)
             )
-
-        self._conn.commit()
+            for i, c in enumerate(chunks):
+                prev_id = chunk_ids[i - 1] if i > 0 else None
+                next_id = chunk_ids[i + 1] if i < len(chunks) - 1 else None
+                self._conn.execute(
+                    """INSERT INTO chunk_index
+                       (chunk_id, note_name, note_mtime, chunk_index,
+                        prev_chunk_id, next_chunk_id, content, token_count)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (chunk_ids[i], note_name, note_mtime, i,
+                     prev_id, next_id, c["content"], c["token_count"]),
+                )
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
 
         if len(self._vectors) == 0:
             self._vectors = vec_matrix
@@ -286,8 +294,6 @@ class ChunkStore:
 
     def remove_note(self, note_name: str) -> None:
         """Remove all chunks for a note. Vector matrix is rebuilt without them."""
-        import numpy as np
-
         rows = self._conn.execute(
             "SELECT chunk_id FROM chunk_index WHERE note_name = ?",
             (note_name,),
@@ -321,8 +327,6 @@ class ChunkStore:
         self, query_vec: list[float], top_k: int = 5
     ) -> list[ChunkContext]:
         """Return top-k most similar chunks with neighbor context."""
-        import numpy as np
-
         if len(self._vectors) == 0:
             return []
 
@@ -395,15 +399,14 @@ class ChunkStore:
         ).fetchall()
         return [r["note_name"] for r in rows]
 
-    def get_unchunked_notes(self, vault_path: str) -> list[tuple[str, float]]:
+    def get_unchunked_notes(self) -> list[tuple[str, float]]:
         """Scan vault for .md files not yet in the chunk index.
 
         Returns list of (note_name, mtime) for notes that need chunking.
         """
-        vault = Path(vault_path)
         indexed = set(self.get_all_note_names())
         result: list[tuple[str, float]] = []
-        for md_file in sorted(vault.glob("*.md")):
+        for md_file in sorted(self._vault.glob("*.md")):
             stem = md_file.stem
             if stem.startswith(".") or stem.startswith("_"):
                 continue
@@ -425,5 +428,4 @@ class ChunkStore:
         return row["content"] if row else None
 
     def _save_vectors(self) -> None:
-        import numpy as np
         np.save(str(self._npy_path), self._vectors)
