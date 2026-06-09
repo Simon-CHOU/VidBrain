@@ -109,6 +109,41 @@ def _init_embedding_engine(emb_config):
     return EmbeddingEngine(emb_config)
 
 
+def _progressive_chunk_indexing(
+    vault_path: str,
+    chunk_store,
+    emb_engine,
+    batch_size: int = 20,
+) -> int:
+    """Process up to batch_size unindexed notes from vault.
+
+    Returns number of notes chunked this batch.
+    """
+    unchunked = chunk_store.get_unchunked_notes()
+    if not unchunked:
+        logger.info("Chunk 索引: vault 已全部索引完毕")
+        return 0
+
+    batch = unchunked[:batch_size]
+    logger.info(
+        "Chunk 索引: 发现 %d 篇未索引笔记，本批处理 %d 篇",
+        len(unchunked), len(batch),
+    )
+
+    indexed = 0
+    for note_name, _mtime in batch:
+        note_path = Path(vault_path) / f"{note_name}.md"
+        try:
+            content = note_path.read_text(encoding="utf-8", errors="replace")
+            chunk_store.chunk_note(note_name, content, emb_engine)
+            indexed += 1
+        except Exception as e:
+            logger.warning("Chunk 索引失败 (%s): %s", note_name, str(e))
+
+    logger.info("Chunk 索引: 本批完成 %d/%d 篇", indexed, len(batch))
+    return indexed
+
+
 def process_batch(
     db: DatabaseManager,
     asr_engine: ASREngine,
@@ -577,6 +612,14 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
     if cfg.embedding_enabled:
         emb_config = _init_embedding()
         emb_store = _init_embedding_store(cfg.vault_dir)
+
+        # Progressive chunk indexing for RAG-enhanced Agent
+        from src.services.chunk_service import ChunkStore
+
+        chunk_store = ChunkStore(cfg.vault_dir)
+        emb_engine = _init_embedding_engine(emb_config)
+        batch = 999999 if cfg.chunk_all else 20
+        _progressive_chunk_indexing(cfg.vault_dir, chunk_store, emb_engine, batch_size=batch)
 
     logger.info("阶段一: 分类视频文件...")
     classify_all_pending(db, cfg.input_dir)
