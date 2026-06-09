@@ -23,6 +23,7 @@ from src.models.state import AgentState
 from src.services.agent_service import create_agent_graph
 from src.services.asr_service import ASREngine
 from src.services.drafts_service import write_draft
+from src.services.chunk_service import ChunkStore
 from src.services.embedding_service import EmbeddingEngine, EmbeddingStore
 from src.services.feedback_service import (
     detect_user_edits,
@@ -175,6 +176,29 @@ def process_pipeline(  # noqa: C901
             embedding_engine=embed_engine,
         )
 
+        # Step 2.6: RAG retrieval (chunk-level semantic search)
+        rag_context = ""
+        if cfg.embedding_enabled and embed_engine is not None:
+            try:
+                chunk_store = ChunkStore(str(vault_path))
+                if chunk_store.get_all_note_names():
+                    query_vec = embed_engine.embed(raw_text[:1000])
+                    results = chunk_store.find_similar(query_vec, top_k=5)
+                    if results:
+                        context_parts: list[str] = []
+                        for r in results:
+                            ctx = r.full_context()
+                            context_parts.append(
+                                f"--- 来源: [[{r.note_name}]] (相似度: {r.similarity:.2f}) ---\n{ctx}"
+                            )
+                        rag_context = "\n\n".join(context_parts)
+                        logger.info(
+                            "[Pipeline] RAG 检索: %d 个相关片段", len(results)
+                        )
+            except Exception as e:
+                logger.warning("[Pipeline] RAG 检索失败，降级为无 RAG: %s", str(e))
+                rag_context = ""
+
         # Step 3: 运行 Agent
         logger.info("[Pipeline] 阶段 3/4 - Agent 处理: %s", video_name)
         agent_start = time.time()
@@ -188,6 +212,7 @@ def process_pipeline(  # noqa: C901
             "update_suggestions": [],
             "final_markdown": "",
             "feedback_context": feedback_context,
+            "rag_context": rag_context,
         }
         final_state = graph.invoke(initial_state)
         agent_elapsed = time.time() - agent_start
@@ -299,6 +324,15 @@ def process_pipeline(  # noqa: C901
                     logger.info("[Pipeline] 已缓存 embedding: %s", output_stem)
                 except Exception as e:
                     logger.warning("[Pipeline] embedding 缓存失败: %s", str(e))
+
+            # Index new note chunks for RAG
+            if cfg.embedding_enabled and embed_engine is not None:
+                try:
+                    chunk_store = ChunkStore(str(vault_path))
+                    chunk_store.chunk_note(output_stem, full_content, embed_engine)
+                    logger.info("[Pipeline] Chunk 索引: %s", output_stem)
+                except Exception as e:
+                    logger.warning("[Pipeline] Chunk 索引失败: %s", str(e))
 
             # Step 4.5: 增量内容更新 (仅全自动模式)
             if not cfg.semi:
