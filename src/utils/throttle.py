@@ -83,7 +83,7 @@ _PROFILE_PARAMS: dict[Profile, dict] = {
     Profile.IDLE: {
         "priority": "normal",
         "parallel_workers": 2,
-        "cpu_threads_per_worker": max(2, multiprocessing.cpu_count() - 1),
+        "cpu_threads_per_worker": max(2, multiprocessing.cpu_count() - 2),
         "video_cooldown_seconds": 0,
         "label": "满负荷模式",
     },

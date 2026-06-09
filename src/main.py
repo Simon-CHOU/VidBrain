@@ -640,6 +640,19 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
             return
         logger.info("已重置 %d 个任务，继续执行正常处理流程...", count)
 
+    # 自动模式下，第一批前先检测桌面活跃，避免启动即打满 CPU
+    if perf_profile.mode == "auto":
+        prev = perf_profile.current
+        new_profile = perf_profile.evaluate()
+        if new_profile != prev:
+            _apply_profile_params()
+            logger.info(
+                "[启动检测] 桌面活跃，切换至 %s: workers=%d, cpu_threads=%d",
+                new_profile.value,
+                cfg.parallel_workers,
+                cfg.cpu_threads,
+            )
+
     processed = process_batch(db, asr_engine, llm_config, cfg, emb_config, emb_store)
     if processed == 0:
         logger.info("没有待处理的 tech 视频")
