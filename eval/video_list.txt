@@ -1,0 +1,7 @@
+# Agent EVAL 测试视频列表
+# 每行一个视频文件路径（mp4）
+# 以 # 开头的行为注释
+#
+# 示例：
+# I:\web-videos\tech\BV1xx1234xxx.mp4
+# I:\web-videos\ai\BV1yy5678yyy.mp4
