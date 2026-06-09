@@ -61,3 +61,27 @@ def sample_markdown_content() -> str:
         "## Details\n\n"
         "More content about `CUDA` and `GPU` optimization.\n"
     )
+
+
+@pytest.fixture
+def chunk_store_fixture(tmp_path):
+    """Create a test ChunkStore with a pre-populated note."""
+    from unittest.mock import MagicMock
+
+    from src.services.chunk_service import ChunkStore
+
+    store = ChunkStore(str(tmp_path))
+    engine = MagicMock()
+    engine.embed_batch.return_value = [[0.1] * 1024, [0.2] * 1024, [0.3] * 1024]
+    engine.embed.return_value = [0.1] * 1024
+
+    content = (
+        "## CUDA Optimization\n"
+        "CUDA kernel fusion reduces kernel launch overhead.\n"
+        "It is a key technique for GPU performance.\n\n"
+        "## Memory Management\n"
+        "Proper memory management avoids fragmentation.\n"
+        "Use pinned memory for faster transfers."
+    )
+    store.chunk_note("TestGPU", content, engine)
+    return store, engine
