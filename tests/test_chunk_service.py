@@ -70,3 +70,121 @@ class TestChunkNoteContent:
         assert len(chunks) == 1
         assert chunks[0]["content"] == "(empty)"
         assert chunks[0]["token_count"] == 1
+
+
+import numpy as np
+from unittest.mock import MagicMock
+
+from src.services.chunk_service import ChunkStore
+
+
+class TestChunkStore:
+    """Tests for ChunkStore."""
+
+    @pytest.fixture
+    def mock_engine(self):
+        engine = MagicMock()
+        engine.embed_batch.side_effect = lambda texts: [[0.1] * 1024 for _ in texts]
+        engine.embed.return_value = [0.1] * 1024
+        return engine
+
+    def make_store(self, vault_path: str) -> ChunkStore:
+        return ChunkStore(vault_path)
+
+    def test_init_creates_db_and_npy(self, tmp_path):
+        store = self.make_store(str(tmp_path))
+        assert (tmp_path / ".vidbrain_chunks.db").exists()
+        assert (tmp_path / ".vidbrain_chunk_vectors.npy").exists()
+        vecs = np.load(str(tmp_path / ".vidbrain_chunk_vectors.npy"))
+        assert vecs.shape == (0, 1024)
+
+    def test_chunk_note_stores_metadata(self, tmp_path, mock_engine):
+        store = self.make_store(str(tmp_path))
+        content = "## Intro\nThis is content about machine learning.\n\n## Details\nDeep dive into attention mechanisms."
+        store.chunk_note("TestNote", content, mock_engine)
+        assert "TestNote" in store.get_all_note_names()
+
+    def test_find_similar_returns_chunks(self, tmp_path, mock_engine):
+        store = self.make_store(str(tmp_path))
+        content = "## Section A\nThe quick brown fox jumps over the lazy dog.\n\n## Section B\nMachine learning is transforming technology."
+        store.chunk_note("NoteA", content, mock_engine)
+        results = store.find_similar([0.1] * 1024, top_k=3)
+        assert len(results) >= 1
+        for r in results:
+            assert hasattr(r, "content")
+            assert hasattr(r, "similarity")
+            assert hasattr(r, "note_name")
+
+    def test_find_similar_includes_neighbor_context(self, tmp_path, mock_engine):
+        store = self.make_store(str(tmp_path))
+        content = "## One\nFirst chunk with enough text to meet minimum size requirements here.\n\n## Two\nSecond chunk also with enough text to meet the minimum size threshold for testing.\n\n## Three\nThird chunk that has enough content to be a proper chunk with minimum length satisfied."
+        store.chunk_note("NeighborNote", content, mock_engine)
+        results = store.find_similar([0.1] * 1024, top_k=3)
+        if len(results) > 1:
+            ctx = results[1].full_context()
+            assert results[1].content in ctx
+
+    def test_is_stale_detects_mtime_change(self, tmp_path, mock_engine):
+        store = self.make_store(str(tmp_path))
+        note_path = tmp_path / "StaleTest.md"
+        note_path.write_text(
+            "## Test\nEnough content here to make a valid chunk with proper sizing.",
+            encoding="utf-8",
+        )
+        content = note_path.read_text(encoding="utf-8")
+        store.chunk_note("StaleTest", content, mock_engine)
+        mtime = note_path.stat().st_mtime
+        assert not store.is_stale("StaleTest", mtime)
+        assert store.is_stale("StaleTest", mtime + 100.0)
+
+    def test_remove_note_cleans_up(self, tmp_path, mock_engine):
+        store = self.make_store(str(tmp_path))
+        content = "## A\nFirst chunk with sufficient content here.\n\n## B\nSecond chunk also with enough text to be meaningful."
+        store.chunk_note("RemoveTest", content, mock_engine)
+        assert "RemoveTest" in store.get_all_note_names()
+        store.remove_note("RemoveTest")
+        assert "RemoveTest" not in store.get_all_note_names()
+
+    def test_get_unchunked_notes_finds_new_notes(self, tmp_path, mock_engine):
+        store = self.make_store(str(tmp_path))
+        (tmp_path / "Unchunked.md").write_text(
+            "## Content\nSome content here with enough text for a valid chunk.",
+            encoding="utf-8",
+        )
+        (tmp_path / "AlsoUnchunked.md").write_text("Minimal note.", encoding="utf-8")
+        unchunked = store.get_unchunked_notes(str(tmp_path))
+        assert len(unchunked) >= 2
+        names = [n for n, _ in unchunked]
+        assert "Unchunked" in names
+
+    def test_get_unchunked_notes_excludes_indexed(self, tmp_path, mock_engine):
+        store = self.make_store(str(tmp_path))
+        note_path = tmp_path / "Indexed.md"
+        note_path.write_text(
+            "## Content\nSome content here with enough text for a valid chunk test.",
+            encoding="utf-8",
+        )
+        store.chunk_note("Indexed", note_path.read_text(encoding="utf-8"), mock_engine)
+        (tmp_path / "NotIndexed.md").write_text(
+            "## Content\nDifferent content with sufficient length to be meaningful.",
+            encoding="utf-8",
+        )
+        unchunked = store.get_unchunked_notes(str(tmp_path))
+        names = [n for n, _ in unchunked]
+        assert "Indexed" not in names
+        assert "NotIndexed" in names
+
+    def test_chunk_id_sequence_in_note(self, tmp_path, mock_engine):
+        store = self.make_store(str(tmp_path))
+        content = (
+            "## First\n" + "First chunk with enough content to be a proper chunk. " * 8 + "\n\n"
+            "## Second\n" + "Second chunk also with sufficient content for the test. " * 8 + "\n\n"
+            "## Third\n" + "Third chunk with more content that meets minimum length. " * 8 + "\n\n"
+            "## Fourth\n" + "Fourth chunk with another piece of content for the test. " * 8
+        )
+        store.chunk_note("SeqTest", content, mock_engine)
+        results = store.find_similar([0.1] * 1024, top_k=10)
+        note_chunks = [r for r in results if r.note_name == "SeqTest"]
+        assert len(note_chunks) >= 2
+        for c in note_chunks:
+            assert c.chunk_id.startswith("SeqTest#")
