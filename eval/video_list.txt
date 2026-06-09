@@ -1,7 +1,39 @@
-# Agent EVAL 测试视频列表
-# 每行一个视频文件路径（mp4）
-# 以 # 开头的行为注释
-#
-# 示例：
-# I:\web-videos\tech\BV1xx1234xxx.mp4
-# I:\web-videos\ai\BV1yy5678yyy.mp4
+I:\web-videos\Videos\创业必看；董事会权力竟然这么大？_2023-12-28_@课代表立正_BV1vj411H7dT.mp4
+I:\web-videos\Videos\AI元年复盘：如何独立思考，抓住未来机会？_2023-12-23_@课代表立正_BV18e411r7dV.mp4
+I:\web-videos\2026年，如何开始布局和构建"数字资产"？_2026-01-23_@课代表立正_BV1rkzsBME7U.mp4
+I:\web-videos\大厂总监：如何向上管理，提升存在感，工作游刃有余？｜朱一丰_下_2026-01-25_@课代表立正_BV1R1zrBgEbY.mp4
+I:\web-videos\比特币是被操纵的吗？孙宇晨比OpenAI + Anthropic赚得都多？前交易所高管离职前专访_2026-02-10_@课代表立正_BV1FZFSzoEuM.mp4
+I:\web-videos\通义千问技术负责人离职，阿里HR捅了多大篓子？｜亚马逊AGI查晟：大模型训练的一线实践_2026-03-05_@课代表立正_BV1oXPiztEdo.mp4
+I:\web-videos\大厂总监：在工作中找到意义感，是为了自己｜朱一丰_上_2026-01-24_@课代表立正_BV1okzrBGE3h.mp4
+I:\web-videos\AI时代，要逃离"知识诅咒"，才能不被淘汰｜孙宇_2026-01-09_@课代表立正_BV1wbiRBUEDc.mp4
+I:\web-videos\别等AGI了：AI真正的瓶颈和机会，在落地_2026-02-05_@课代表立正_BV13KFczMEjG.mp4
+I:\web-videos\可妈可吗\【可妈可吗】直播回放 2024.11.22「再见爱人，你好爱人」_2024-11-23_@冰蓝色蛋挞_BV1jTBBYTEgx.mp4
+I:\web-videos\可妈可吗\【可妈可吗】直播回放 2025.2.8「关于新视频…有些想说的」_2025-02-09_@冰蓝色蛋挞_BV1LrNGewEda.mp4
+I:\web-videos\可妈可吗\【可妈可吗】直播回放 2025.5.16「夭寿啦！红薯居然可以买b站大会员了！」2025-05-17@冰蓝色蛋挞_BV13uJwz9E3g.mp4
+I:\web-videos\可妈可吗\娃一天能叫多少次爸爸妈妈？原来第一视角竟有这么多惊喜！_2024-06-16_@可妈可吗_BV1ux4y1t7xS.mp4
+I:\web-videos\可妈可吗\【可妈可吗】直播回放 2025.4.2「今年房价可以的！」_2025-04-03_@冰蓝色蛋挞_BV1FVfMYVEjy.mp4
+I:\web-videos\可妈可吗\全听粉丝安排的一家四口澳门之旅｜00后好会玩啊！_2025-06-20_@可妈可吗_BV1XqKwz4ERh.mp4
+I:\web-videos\可妈可吗\大学生抱怨赚不到钱？因为教育把学生规训成了打工人_2023-12-17_@可妈可吗_BV12g4y117Yz.mp4
+I:\web-videos\可妈可吗\【可妈可吗】直播回放 2025.4.30「终于二人世界了」_2025-05-01_@冰蓝色蛋挞_BV1NeGhzyErF.mp4
+I:\web-videos\可妈可吗\脆皮又拧巴！我们为什么不能好好爱"老己"【哔有反响】_2025-12-29_@小王Albert@糖果果的未来要发光@可妈可吗@兔叭咯@nagi真的很文静@好奇星人知识喵_BV1V4vsByEPJ.mp4
+I:\web-videos\可妈可吗\38岁辞职回家，但不做软饭男，可以吗？2026-02-27@可妈可吗_BV1TuASzGEXB_p1.mp4
+I:\web-videos\可妈可吗\【可妈可吗】直播回放 2025.1.23「回家过年是负担吗？」_2025-01-24_@冰蓝色蛋挞_BV1EmfVYsEtW.mp4
+I:\web-videos\可妈可吗\【可妈可吗】直播回放 2025.3.5「拉老公一起去健身了！」_2025-03-07_@冰蓝色蛋挞_BV1q1RTYoE5H.mp4
+I:\web-videos\被阿里伤害的程序员，在成都字节找回生活！_2025-06-08_@极海Channel_BV1C5TQzJEk9.mp4
+I:\web-videos\【Vlog】曼谷街头暴走普吉岛海滩，泰国好玩吗？_2024-08-07_@极海Channel_BV1Zw4m1k7c3.mp4
+I:\web-videos\程序员4年薪资翻了5倍，低代码+AIGC，独立开发前景_2024-06-02_@极海Channel_BV1xi421U7N4.mp4
+I:\web-videos\Videos\我不建议用开源项目当面试亮点，如何科学参与到社区_2023-12-25_@极海Channel_BV1CN4y1z7GV.mp4
+I:\web-videos\30岁高薪裸辞算法工程师，未来可期_2024-05-30_@极海Channel_BV14w4m1S7jt.mp4
+I:\web-videos\2个月4家大厂Offer，作为学生如何准备面试！_2024-05-08_@极海Channel_BV1Q1421B73i.mp4
+I:\web-videos\Videos\粉丝敢问UP敢答，问的很好，下次别问了_2023-12-28_@极海Channel_BV1bg4y167eZ.mp4
+I:\web-videos\Videos\996没有自由&希望，常见副业可行性分析_2023-12-22_@极海Channel_BV1Qe411r7Nz.mp4
+I:\web-videos\【完整加长版】海外大厂2年经验，分布式项目亮点，高级后端开发面试_2024-07-19_@极海Channel_BV1ti421a713.mp4
+I:\web-videos\吊打面试官！性能优化可圈可点！12306挽回颜面！2022-10-26@极海Channel_BV1VP411P7rE.mp4
+I:\web-videos\年度QA，粉丝都提了些什么问题？_2025-01-01_@极海Channel_BV1hh6oYnEtL.mp4
+I:\web-videos\【极海】P7架构师吊打面试官！大型项目系统设计！_2025-08-10_@极海Channel_BV1DtbPzDEkf.mp4
+I:\web-videos\面试官被吊打了？工作8年如何深入聊项目！为什么可以拿高薪！2022-09-08@极海Channel_BV1VY4y1M7RP.mp4
+I:\web-videos\【极海】面试现场写prompt修复bug！这你受的了吗？_2026-04-26_@极海Channel_BV1NyZcBsE9V.mp4
+I:\web-videos\AI时代企业只招高级！新人如何自救！这几点一定要重视！_2026-01-12_@极海Channel_BV1ujrhBMERj.mp4
+I:\web-videos\半夜CPU疯狂告警！服务器被入侵！虚拟币挖矿猖獗！_2025-10-20_@极海Channel_BV1wcW2zkEbX.mp4
+I:\web-videos\制度性作恶，很难不卷！_2026-01-23_@极海Channel_BV1jwzTBkEEX.mp4
+I:\web-videos\【极海】面试官火力全开！深挖多线程源码！_2025-11-04_@极海Channel_BV1Mh1rBVEyv.mp4
