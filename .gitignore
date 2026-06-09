@@ -35,6 +35,8 @@ smoke_test_vault/
 # pytest
 .pytest_cache/
 .coverage
+.coverage.*
+coverage.xml
 htmlcov/
 
 # mypy
