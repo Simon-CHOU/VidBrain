@@ -1,13 +1,13 @@
 """Tests for reviewer_prompt — prompt rendering and JSON parsing."""
+
 from __future__ import annotations
 
 import json
-import pytest
+
 from eval.reviewer_prompt import (
     build_system_prompt,
     build_user_message,
     parse_review_response,
-    REVIEW_SYSTEM_PROMPT,
 )
 
 
