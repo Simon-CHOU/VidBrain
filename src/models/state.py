@@ -17,6 +17,7 @@ class AgentState(TypedDict, total=False):
         update_suggestions: 更新建议列表。
         final_markdown: Agent 生成的最终 Markdown 笔记。
         feedback_context: 用户反馈上下文片段。
+        rag_context: RAG 检索到的知识库相关上下文片段。
     """
 
     video_id: str
@@ -27,3 +28,4 @@ class AgentState(TypedDict, total=False):
     update_suggestions: List[Dict[str, Any]]
     final_markdown: str
     feedback_context: str
+    rag_context: str

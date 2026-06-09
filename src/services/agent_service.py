@@ -67,13 +67,29 @@ def create_agent_graph(llm_config: LLMConfig):  # noqa: C901
     def clean_and_extract_node(state: AgentState) -> Dict[str, Any]:
         """节点 1：术语纠错 + 分段 + 提炼核心知识。"""
         logger.info("[Agent] 清洗与提炼: %s", state["video_name"])
-        prompt = (
-            "你是一个资深的 AI Infrastructure 技术文档专家。请对以下技术视频的原始 ASR 文本进行处理：\n"
-            "1. 修正错别字，尤其是专业技术术语（例如将'扣打'修正为'CUDA'，'卡夫卡'修正为'Kafka'，'单子融合'修正为'算子融合'）。\n"
-            "2. 将无标点的文本根据语义进行结构化段落划分。\n"
-            "3. 提炼出核心原理、架构设计或核心代码/逻辑片段。\n\n"
-            f"原始 ASR 文本：\n{state['raw_text']}"
-        )
+        rag = state.get("rag_context", "")
+        if rag:
+            prompt = (
+                "你是一个资深的 AI Infrastructure 技术文档专家。\n\n"
+                "[系统参考]\n"
+                "知识库中已存在以下相关内容片段：\n"
+                f"{rag}\n\n"
+                "[任务]\n"
+                "请对以下技术视频的原始 ASR 文本进行处理。"
+                "参考上方片段中的术语写法——如果参考片段中的术语比 ASR 文本更准确，优先采用参考片段的写法。\n"
+                "1. 修正错别字，尤其是专业技术术语（例如将'扣打'修正为'CUDA'，'卡夫卡'修正为'Kafka'）。\n"
+                "2. 将无标点的文本根据语义进行结构化段落划分。\n"
+                "3. 提炼出核心原理、架构设计或核心代码/逻辑片段。\n\n"
+                f"原始 ASR 文本：\n{state['raw_text']}"
+            )
+        else:
+            prompt = (
+                "你是一个资深的 AI Infrastructure 技术文档专家。请对以下技术视频的原始 ASR 文本进行处理：\n"
+                "1. 修正错别字，尤其是专业技术术语（例如将'扣打'修正为'CUDA'，'卡夫卡'修正为'Kafka'，'单子融合'修正为'算子融合'）。\n"
+                "2. 将无标点的文本根据语义进行结构化段落划分。\n"
+                "3. 提炼出核心原理、架构设计或核心代码/逻辑片段。\n\n"
+                f"原始 ASR 文本：\n{state['raw_text']}"
+            )
         content = _call_llm(client, model, prompt, temperature=0.2)
         return {"final_markdown": content}
 
@@ -81,16 +97,32 @@ def create_agent_graph(llm_config: LLMConfig):  # noqa: C901
         """节点 2：基于已有笔记生成双链。"""
         logger.info("[Agent] 自动织网: %s", state["video_name"])
         notes = state.get("existing_notes", [])
-        # 前 10 个为高质量笔记（已按 quality_score 降序排列）
         preferred = notes[:10]
         notes_summary = ", ".join(notes) if notes else "（无已有笔记）"
         preferred_summary = ", ".join(preferred) if preferred else ""
-        prompt = (
-            "你是一个高级知识库架构师。请在不破坏原有 Markdown 结构的前提下，比对给定的'已有笔记列表'。\n"
-            "如果当前技术笔记中出现了列表中已有的概念，请自动将其转换为 Obsidian 双链语法 `[[已存在的笔记]]`。\n"
-            "如果发现非常关键、且列表里没有的全新技术名词，也请用 `[[新概念]]` 进行前瞻性标记。\n\n"
-            f"已有笔记列表：{notes_summary}\n"
-        )
+
+        rag = state.get("rag_context", "")
+        if rag:
+            prompt = (
+                "你是一个高级知识库架构师。\n\n"
+                "[知识库检索结果]\n"
+                "以下片段可能与当前文本高度相关：\n"
+                f"{rag}\n\n"
+                "[任务]\n"
+                "请在不破坏原有 Markdown 结构的前提下，比对给定的'已有笔记列表'。\n"
+                "如果当前技术笔记中出现了列表中已有的概念，请自动将其转换为 Obsidian 双链语法 `[[已存在的笔记]]`。\n"
+                "参考上方检索片段中反复出现的笔记名——它们应该优先被链入。\n"
+                "如果发现非常关键、且列表里没有的全新技术名词，也请用 `[[新概念]]` 进行前瞻性标记。\n\n"
+                f"已有笔记列表：{notes_summary}\n"
+            )
+        else:
+            prompt = (
+                "你是一个高级知识库架构师。请在不破坏原有 Markdown 结构的前提下，比对给定的'已有笔记列表'。\n"
+                "如果当前技术笔记中出现了列表中已有的概念，请自动将其转换为 Obsidian 双链语法 `[[已存在的笔记]]`。\n"
+                "如果发现非常关键、且列表里没有的全新技术名词，也请用 `[[新概念]]` 进行前瞻性标记。\n\n"
+                f"已有笔记列表：{notes_summary}\n"
+            )
+
         if preferred_summary:
             prompt += f"\n推荐优先链接（高质量笔记）：{preferred_summary}\n"
         prompt += f"\n当前笔记内容：\n{state['final_markdown']}"
@@ -103,36 +135,55 @@ def create_agent_graph(llm_config: LLMConfig):  # noqa: C901
     def suggest_update_node(state: AgentState) -> Dict[str, Any]:
         """节点 3：分析是否需要更新关联已有笔记。"""
         related = state.get("related_notes", [])
-        if not related:
+        rag = state.get("rag_context", "")
+
+        if not related and not rag:
             logger.info("[Agent] 无关联笔记，跳过更新建议")
             return {"update_suggestions": []}
 
         logger.info("[Agent] 生成更新建议 (关联 %d 篇笔记): %s", len(related), state["video_name"])
 
-        # 构建关联笔记摘要
         related_summary_parts: list[str] = []
         for rn in related:
             preview = rn.get("content_preview", "")
             related_summary_parts.append(
-                f"- 笔记: {rn['name']}\n  匹配术语: {', '.join(rn['match_terms'])}\n  内容预览: {preview[:200]}"  # noqa: E501
+                f"- 笔记: {rn['name']}\n  匹配术语: {', '.join(rn['match_terms'])}\n  内容预览: {preview[:200]}"
             )
-        related_summary = "\n".join(related_summary_parts)
+        related_summary = "\n".join(related_summary_parts) if related_summary_parts else "（无关联笔记）"
 
         new_preview = state["final_markdown"][:600]
 
-        prompt = (
-            f"Given this NEW note about \"{state['video_name']}\" and EXISTING related notes below, "
-            "determine if each existing note should be updated.\n\n"
-            "Options:\n"
-            "- 'none': no update needed\n"
-            "- 'ref': add a reference link at the bottom\n"
-            "- 'supplement': add supplementary content\n\n"
-            f"## New Note Content (preview)\n{new_preview}\n\n"
-            f"## Existing Related Notes\n{related_summary}\n\n"
-            "Output JSON:\n"
-            '{"suggestions": [{"target_note": "<name>", "type": "ref|supplement|none", '
-            '"content": "markdown text to append"}]}'
-        )
+        if rag:
+            prompt = (
+                f"Given this NEW note about \"{state['video_name']}\" and EXISTING related notes below, "
+                "determine if each existing note should be updated.\n\n"
+                "[Knowledge Base Retrieval]\n"
+                "The new content is semantically similar to these existing vault chunks:\n"
+                f"{rag}\n\n"
+                "Options:\n"
+                "- 'none': no update needed\n"
+                "- 'ref': add a reference link at the bottom\n"
+                "- 'supplement': add supplementary content\n\n"
+                f"## New Note Content (preview)\n{new_preview}\n\n"
+                f"## Existing Related Notes\n{related_summary}\n\n"
+                "Output JSON:\n"
+                '{"suggestions": [{"target_note": "<name>", "type": "ref|supplement|none", '
+                '"content": "markdown text to append"}]}'
+            )
+        else:
+            prompt = (
+                f"Given this NEW note about \"{state['video_name']}\" and EXISTING related notes below, "
+                "determine if each existing note should be updated.\n\n"
+                "Options:\n"
+                "- 'none': no update needed\n"
+                "- 'ref': add a reference link at the bottom\n"
+                "- 'supplement': add supplementary content\n\n"
+                f"## New Note Content (preview)\n{new_preview}\n\n"
+                f"## Existing Related Notes\n{related_summary}\n\n"
+                "Output JSON:\n"
+                '{"suggestions": [{"target_note": "<name>", "type": "ref|supplement|none", '
+                '"content": "markdown text to append"}]}'
+            )
 
         raw_json = _call_llm(client, model, prompt, temperature=0.1)
         try:
