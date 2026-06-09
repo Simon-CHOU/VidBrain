@@ -263,6 +263,12 @@ class ChunkStore:
         if note_path.exists():
             note_mtime = note_path.stat().st_mtime
 
+        # Snapshot old chunk_id -> vector index before DELETE
+        old_rows = self._conn.execute(
+            "SELECT chunk_id FROM chunk_index ORDER BY chunk_id"
+        ).fetchall()
+        old_id_to_idx = {r["chunk_id"]: i for i, r in enumerate(old_rows)}
+
         self._conn.execute("BEGIN IMMEDIATE")
         try:
             self._conn.execute(
@@ -284,10 +290,27 @@ class ChunkStore:
             self._conn.rollback()
             raise
 
-        if len(self._vectors) == 0:
-            self._vectors = vec_matrix
+        # Rebuild vector matrix from DB chunk order to prevent orphaned vectors
+        # when re-indexing a note that already has chunks.
+        all_ids = self._conn.execute(
+            "SELECT chunk_id FROM chunk_index ORDER BY chunk_id"
+        ).fetchall()
+        new_vec_map = dict(zip(chunk_ids, vec_matrix))
+
+        rebuilt: list = []
+        for row in all_ids:
+            cid = row["chunk_id"]
+            if cid in new_vec_map:
+                rebuilt.append(new_vec_map[cid])
+            elif cid in old_id_to_idx:
+                idx = old_id_to_idx[cid]
+                if idx < len(self._vectors):
+                    rebuilt.append(self._vectors[idx])
+
+        if rebuilt:
+            self._vectors = np.array(rebuilt, dtype=np.float32)
         else:
-            self._vectors = np.vstack([self._vectors, vec_matrix])
+            self._vectors = np.empty((0, self.VECTOR_DIM), dtype=np.float32)
 
         self._save_vectors()
         logger.info("ChunkStore: 已索引笔记 %s (%d chunks)", note_name, len(chunks))
