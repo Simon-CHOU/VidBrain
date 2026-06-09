@@ -73,8 +73,7 @@ exclude_lines = [
     "raise NotImplementedError",
     "if TYPE_CHECKING:",
 ]
-# Coverage is reported in CI for visibility; 80% is not enforced until the
-# integration-heavy modules (ASR, agent, watcher) have dedicated tests.
+fail_under = 80
 
 [tool.mypy]
 python_version = "3.10"

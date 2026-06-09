@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.services.refiner_service import analyze_links, parse_links
+from src.services.refiner_service import analyze_links, parse_links, read_note, scan_vault
 
 
 class TestParseLinks:
@@ -97,3 +97,30 @@ class TestAnalyzeLinks:
         ]
         result = analyze_links(notes)
         assert result["incoming_counts"]["Target"] == 2
+
+
+class TestReadNote:
+    def test_read_note_extracts_links_and_quality(self, tmp_path) -> None:
+        note = tmp_path / "note.md"
+        note.write_text(
+            "---\nquality_score: 6\n---\nSee [[Python]] and [[CUDA]].",
+            encoding="utf-8",
+        )
+        data = read_note(note)
+        assert data["name"] == "note"
+        assert data["quality"] == 6
+        assert "Python" in data["outgoing_links"]
+
+
+class TestScanVault:
+    def test_scan_vault_skips_moc(self, tmp_path) -> None:
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "note.md").write_text("[[A]]", encoding="utf-8")
+        (vault / "MOC-index.md").write_text("moc", encoding="utf-8")
+        notes = scan_vault(str(vault))
+        assert len(notes) == 1
+        assert notes[0]["name"] == "note"
+
+    def test_scan_vault_missing_dir(self, tmp_path) -> None:
+        assert scan_vault(str(tmp_path / "missing")) == []
