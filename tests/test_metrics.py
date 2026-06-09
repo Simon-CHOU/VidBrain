@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from src.utils.metrics import MetricsCollector, _format_duration, get_metrics
 
 

@@ -6,13 +6,11 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from src.services.asr_vulkan_service import (
     ASREngineVulkan,
+    _extract_audio,
     _find_ggml_model,
     _find_whisper_cli,
-    _extract_audio,
 )
 
 

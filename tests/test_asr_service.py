@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from src.services.asr_service import ASREngine, _find_cached_snapshot, _repo_to_cache_dir
 
@@ -20,12 +17,7 @@ class TestAsrHelpers:
 
     def test_find_cached_snapshot_with_cache(self, tmp_path: Path, monkeypatch) -> None:
         repo = "Systran/faster-whisper-tiny"
-        snap_dir = (
-            tmp_path
-            / f"models--{_repo_to_cache_dir(repo)}"
-            / "snapshots"
-            / "abc123"
-        )
+        snap_dir = tmp_path / f"models--{_repo_to_cache_dir(repo)}" / "snapshots" / "abc123"
         snap_dir.mkdir(parents=True)
         (snap_dir / "model.bin").write_bytes(b"x")
         (snap_dir / "config.json").write_text("{}")

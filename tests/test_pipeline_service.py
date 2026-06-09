@@ -6,10 +6,8 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from src.models.config import LLMConfig, PipelineConfig
 from src.services.pipeline_service import (
-    _compute_quality_score,
     _read_note_quality,
     process_pipeline,
 )
@@ -108,7 +106,9 @@ class TestProcessPipeline:
 
     @patch("src.services.pipeline_service.create_agent_graph")
     @patch("src.services.pipeline_service.check_related_notes", return_value=[])
-    def test_failure_retries_then_pending(self, mock_related, mock_graph, pipeline_ctx: dict) -> None:
+    def test_failure_retries_then_pending(
+        self, mock_related, mock_graph, pipeline_ctx: dict
+    ) -> None:
         asr_engine = MagicMock()
         asr_engine.transcribe.side_effect = RuntimeError("asr failed")
         process_pipeline(

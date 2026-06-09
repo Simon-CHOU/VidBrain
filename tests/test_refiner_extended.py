@@ -5,8 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from src.services.refiner_service import (
     _call_llm_batch,
     apply_suggestions,
@@ -54,9 +52,7 @@ class TestCallLlmBatch:
         client.chat.completions.create.return_value = MagicMock(
             choices=[
                 MagicMock(
-                    message=MagicMock(
-                        content='{"suggestions": [{"note": "a", "links": ["b"]}]}'
-                    )
+                    message=MagicMock(content='{"suggestions": [{"note": "a", "links": ["b"]}]}')
                 )
             ]
         )

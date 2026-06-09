@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
 
 import pytest
-
 from src.utils.vault_cache import (
     VaultCache,
     _read_note_quality_from_content,

@@ -7,7 +7,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from src.models.config import LLMConfig, PipelineConfig
 from src.utils.db import DatabaseManager
 from src.utils.watcher import VideoFileHandler, start_watcher

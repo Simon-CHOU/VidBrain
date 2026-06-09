@@ -5,7 +5,6 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from src.models.config import EmbeddingConfig
 from src.services.embedding_service import EmbeddingEngine, EmbeddingStore
 

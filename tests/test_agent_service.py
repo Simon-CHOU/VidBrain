@@ -5,7 +5,6 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from src.models.config import LLMConfig
 from src.services.agent_service import _call_llm, create_agent_graph
 
@@ -21,8 +20,9 @@ class TestCallLlm:
         client.chat.completions.create.return_value = MagicMock(
             choices=[MagicMock(message=MagicMock(content="response text"))]
         )
-        with patch("src.services.agent_service.get_metrics"), patch(
-            "src.services.agent_service.get_audit"
+        with (
+            patch("src.services.agent_service.get_metrics"),
+            patch("src.services.agent_service.get_audit"),
         ):
             result = _call_llm(client, "model", "prompt", 0.2)
         assert result == "response text"
