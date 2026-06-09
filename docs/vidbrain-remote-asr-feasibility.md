@@ -7,7 +7,7 @@
 在当前双机场景下，实现如下行为：
 
 - `Desktop` 继续运行当前 VidBrain 主流程。
-- `Laptop` 作为局域网内的远端 GPU ASR 节点，地址固定为 `192.168.5.123`。
+- `Laptop` 作为局域网内的远端 GPU ASR 节点，其**稳定身份**以主机名 `LAPTOP-3J6HL311` 为准，而不是固定 IP。
 - `Laptop` 在线时，ASR 优先使用远端 `RTX 2060 6GB`。
 - `Laptop` 离线、休眠、断网或服务异常时，Desktop 自动回退到本地 `faster-whisper tiny` CPU 路径。
 - `Laptop` 恢复接入局域网且服务恢复后，后续任务自动重新切回远端 GPU。
@@ -17,7 +17,7 @@
 推荐采用：
 
 - **数据面**：`Desktop -> HTTP -> Laptop whisper-server`
-- **控制面**：固定 endpoint + 主动健康检查 + 熔断 + 冷却 + 后台恢复探测
+- **控制面**：稳定主机名 endpoint + 主动健康检查 + 熔断 + 冷却 + 后台恢复探测
 - **服务实现**：优先 `whisper.cpp` 官方 `whisper-server`
 - **回退路径**：Desktop 本地 `faster-whisper tiny`
 
@@ -74,7 +74,7 @@
 Desktop (VidBrain)
   ├─ 扫描视频
   ├─ ffmpeg -> 16kHz mono wav
-  ├─ HTTP POST /inference -> 192.168.5.123:8080
+  ├─ HTTP POST /inference -> LAPTOP-3J6HL311:8080
   └─ 失败时 fallback -> local faster-whisper tiny (CPU)
 
 Laptop (Win11 + RTX 2060 6GB)
@@ -177,17 +177,19 @@ Windows 官方支持作为可选组件安装，并可通过：
 同时需要 `OpenSSH-Server-In-TCP` 防火墙规则。  
 参考：<https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_install_firstuse?tabs=powershell&pivots=windows-11>
 
-#### 2. 固定地址能力
+#### 2. 稳定主机名能力
 
 建议：
 
-- 为 `192.168.5.123` 做 DHCP 保留
-- 或保证主机名稳定解析
+- 把 `LAPTOP-3J6HL311` 作为 Laptop 的唯一稳定节点标识
+- 优先保证 Desktop 在局域网内能解析 `LAPTOP-3J6HL311`
+- 不把 DHCP 保留、固定 IP、固定 MAC 作为前提假设
 
 原因：
 
-- 第一阶段不依赖 mDNS
-- 固定地址比动态发现更稳
+- 你的真实约束是：IP 可能变化，MAC 也可能因 Win11 隐私策略随机化
+- 在这种前提下，`hostname` 才是当前唯一稳定锚点
+- 第一阶段不依赖 mDNS，但也不再假设固定 IP
 
 #### 3. 本地日志目录
 
@@ -343,13 +345,17 @@ Windows 官方支持作为可选组件安装，并可通过：
 
 ## 6. Desktop / Laptop 最小协议设计
 
-### 6.1 固定网络配置
+### 6.1 稳定节点配置
 
-第一阶段直接固定：
+第一阶段直接固定的是“节点身份”，不是“IP 数值”：
 
-- Laptop 地址：`192.168.5.123`
+- Laptop 主机名：`LAPTOP-3J6HL311`
 - 端口：`8080`
 - 协议：`HTTP/1.1`
+
+也就是说，第一阶段的逻辑 endpoint 应写成：
+
+- `http://LAPTOP-3J6HL311:8080`
 
 不建议第一阶段就引入：
 
@@ -357,11 +363,16 @@ Windows 官方支持作为可选组件安装，并可通过：
 - zeroconf 自动发现
 - 注册中心
 
+这里的“不引入 mDNS”不是否定主机名，而是指：
+
+- 不把 `*.local` 广播发现机制作为唯一真相源
+- 优先使用你已经确认稳定的机器名 `LAPTOP-3J6HL311`
+
 ### 6.2 数据面接口
 
 直接复用 `whisper-server` 现成接口：
 
-- `POST http://192.168.5.123:8080/inference`
+- `POST http://LAPTOP-3J6HL311:8080/inference`
 
 官方 `examples/server` 已给出 `multipart/form-data` 用法。  
 参考：<https://github.com/ggml-org/whisper.cpp/blob/master/examples/server/README.md>
@@ -409,15 +420,29 @@ Desktop 应统一发送：
 
 控制面分成两层。
 
-#### 层 1：基础连通性
+#### 层 1：名称解析与基础连通性
+
+第一层不应再假设固定 IP，而应按以下顺序处理：
+
+1. 解析 `LAPTOP-3J6HL311`
+2. 取得当前解析到的 IP
+3. 再对 `host:8080` 做 TCP connect
 
 通过 TCP 探测：
 
-- `192.168.5.123:8080`
+- `LAPTOP-3J6HL311:8080`
 
 用途：
 
-- 快速判断服务端口是否打开
+- 判断当前主机名解析结果对应的服务端口是否打开
+
+这一步非常关键，因为在你的环境里：
+
+- IP 会跳
+- MAC 可能随机
+- 但 `LAPTOP-3J6HL311` 不变
+
+因此 Desktop 不应长期缓存一个硬编码 IP 来当真相，而应以主机名为 canonical endpoint。
 
 #### 层 2：应用就绪性
 
@@ -450,12 +475,34 @@ Desktop 应统一发送：
 如果第一天不想给 Laptop 再加额外 wrapper：
 
 - **数据面**：直接用 `/inference`
-- **控制面**：先用 TCP 探测 + 启动日志 + 失败即回退
+- **控制面**：先用 hostname 解析 + TCP 探测 + 启动日志 + 失败即回退
 
 也就是说：
 
 - `/healthz` 是推荐项
 - 不是第一天上线的硬前提
+
+#### 6.5 第一阶段的解析策略
+
+为了适配“hostname 稳定、IP 不稳定”的现实约束，建议采用下面的解析策略：
+
+1. **主机名是唯一节点身份**
+   - 永远以 `LAPTOP-3J6HL311` 标识这台 Laptop。
+
+2. **每个探测周期重新解析**
+   - 不要把某次解析出来的 IP 长期写死。
+   - 后台健康检查周期开始前，先重新解析 `LAPTOP-3J6HL311`。
+
+3. **请求期可短暂复用最近一次成功解析**
+   - 同一个短窗口内可以复用最近一次成功结果，避免每个 HTTP 请求都重复解析。
+   - 但一旦出现连接失败，应立即触发重新解析，而不是继续死打旧 IP。
+
+4. **不要依赖固定 MAC / DHCP 保留**
+   - 在你的 Win11 设置下，这两项都不应作为设计前提。
+
+5. **mDNS 仅作补充，不作主前提**
+   - 如果将来 plain hostname 解析在你的网络里偶发失效，再补充 `mDNS/zeroconf`。
+   - 但系统的 canonical node id 仍然应是 `LAPTOP-3J6HL311`。
 
 ## 7. 状态机与切换规则
 
@@ -567,7 +614,7 @@ Desktop 侧建议至少维护以下 4 个状态：
 
 在 Desktop 上验证：
 
-- 能访问 `192.168.5.123:8080`
+- 能访问 `LAPTOP-3J6HL311:8080`
 - 能上传一段 WAV
 - 能收到 JSON 结果
 
@@ -587,8 +634,8 @@ Desktop 侧建议至少维护以下 4 个状态：
 
 只有在下面情况出现时，才需要补服务发现：
 
-- Laptop IP 不再稳定
-- DHCP 无法保留
+- plain hostname 解析在你的网络里不够稳定
+- `LAPTOP-3J6HL311` 无法持续被 Desktop 正确解析
 - 局域网环境经常变化
 
 ## 10. 风险与注意事项
@@ -612,7 +659,7 @@ Desktop 侧建议至少维护以下 4 个状态：
 
 先做到：
 
-- 固定 IP
+- 固定主机名身份
 - 固定端口
 - 固定模型
 - 固定启动方式
@@ -640,7 +687,7 @@ Desktop 侧建议至少维护以下 4 个状态：
    - 第二阶段需要更强服务治理时再上 `WinSW`
 
 3. Desktop/Laptop 协议：
-   - 直接固定 `http://192.168.5.123:8080/inference`
+   - 直接固定 `http://LAPTOP-3J6HL311:8080/inference`
    - Desktop 发标准 WAV
    - 远端失败即回退本地 `tiny`
 
