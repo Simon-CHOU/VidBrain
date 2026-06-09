@@ -147,6 +147,24 @@ def run_single_pipeline(
             logger.warning("Embedding 配置失败: %s", str(e))
             return None
 
+        # Pre-index vault notes so RAG retrieval finds chunks
+        try:
+            from src.services.chunk_service import ChunkStore
+            from src.services.embedding_service import EmbeddingEngine
+
+            chunk_store = ChunkStore(vault_dir)
+            emb_engine = EmbeddingEngine(emb_config)
+            unchunked = chunk_store.get_unchunked_notes()
+            if unchunked:
+                logger.info("Chunk 预索引: %d 篇笔记...", len(unchunked))
+                for note_name, _ in unchunked:
+                    note_path = Path(vault_dir) / f"{note_name}.md"
+                    if note_path.exists():
+                        content = note_path.read_text(encoding="utf-8", errors="replace")
+                        chunk_store.chunk_note(note_name, content, emb_engine)
+        except Exception as e:
+            logger.warning("Chunk 预索引失败 (非致命): %s", str(e))
+
     try:
         process_pipeline(
             video_id=video_id,
