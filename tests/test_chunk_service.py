@@ -9,7 +9,10 @@ class TestChunkNoteContent:
     """Tests for chunk_note_content()."""
 
     def test_splits_by_h2_headings(self):
-        content = "## Intro\nThis is intro content.\n\n## Main\nThis is main content."
+        content = (
+            "## Intro\n" + "content. " * 30 + "\n\n"
+            "## Main\n" + "content. " * 30
+        )
         chunks = chunk_note_content(content)
         assert len(chunks) == 2
         assert chunks[0]["content"].startswith("## Intro")
@@ -17,7 +20,9 @@ class TestChunkNoteContent:
 
     def test_splits_by_h3_in_long_sections(self):
         intro = "intro paragraph. " * 50
-        content = f"## Overview\n{intro}\n\n### Detail A\nShort detail.\n\n### Detail B\nMore detail."
+        detail_a = "### Detail A\n" + "detail a content. " * 10 + "\n\n"
+        detail_b = "### Detail B\n" + "detail b content. " * 10
+        content = f"## Overview\n{intro}\n\n{detail_a}{detail_b}"
         chunks = chunk_note_content(content)
         assert len(chunks) >= 3
 
@@ -35,19 +40,23 @@ class TestChunkNoteContent:
     def test_strips_frontmatter(self):
         content = (
             "---\ntype: note\nstatus: auto\n---\n\n"
-            "## Actual Content\nThis is the real content."
+            "## Actual Content\n" + "real content. " * 20
         )
         chunks = chunk_note_content(content)
         assert "---" not in chunks[0]["content"]
         assert "type:" not in chunks[0]["content"]
 
     def test_content_preserved_in_order(self):
-        content = "## First\nFirst content.\n\n## Second\nSecond content.\n\n## Third\nThird content."
+        content = (
+            "## First\n" + "first content. " * 20 + "\n\n"
+            "## Second\n" + "second content. " * 20 + "\n\n"
+            "## Third\n" + "third content. " * 20
+        )
         chunks = chunk_note_content(content)
         assert len(chunks) == 3
         full = "".join(c["content"] for c in chunks)
-        assert "First content" in full
-        assert "Third content" in full
+        assert "first content" in full
+        assert "third content" in full
 
     def test_token_count_is_estimated(self):
         content = "## Test\nThis is test content with about thirty characters."
@@ -55,3 +64,9 @@ class TestChunkNoteContent:
         assert "token_count" in chunks[0]
         assert isinstance(chunks[0]["token_count"], int)
         assert chunks[0]["token_count"] > 0
+
+    def test_empty_content_returns_singleton(self):
+        chunks = chunk_note_content("")
+        assert len(chunks) == 1
+        assert chunks[0]["content"] == "(empty)"
+        assert chunks[0]["token_count"] == 1

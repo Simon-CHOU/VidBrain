@@ -9,16 +9,12 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
-from pathlib import Path
 
 logger = logging.getLogger("vidbrain.chunk")
 
-TARGET_MIN = 300
 TARGET_MAX = 600
 HARD_MIN = 150
 HARD_MAX = 800
-SOFT_MIN = 20
 
 
 def chunk_note_content(content: str) -> list[dict]:
@@ -73,7 +69,7 @@ def _estimate_tokens(text: str) -> int:
               or "぀" <= c <= "ゟ"
               or "가" <= c <= "힯")
     ascii_chars = len(text) - cjk
-    return max(1, ascii_chars // 4 + cjk * 3 // 2)
+    return max(1, ascii_chars // 4 + cjk * 2 // 3)
 
 
 def _split_by_h2(text: str) -> list[str]:
@@ -137,9 +133,8 @@ def _split_long_by_sentence(sections: list[str]) -> list[str]:
 def _merge_tiny_chunks(sections: list[str]) -> list[str]:
     """Merge small fragments back into neighbouring chunks.
 
-    * Chunks starting with a heading marker (``#``, ``##``, ``###``) >= SOFT_MIN
-      are kept as standalone chunks.
-    * Truly tiny heading chunks (< SOFT_MIN) are merged into the previous chunk.
+    * Chunks smaller than HARD_MIN (even heading chunks) are merged into the
+      previous chunk.
     * Non-heading fragments are always merged into the previous chunk.
     """
     if not sections:
@@ -150,7 +145,7 @@ def _merge_tiny_chunks(sections: list[str]) -> list[str]:
         if not cur:
             continue
         is_heading = re.match(r"^#{1,3}\s", cur)
-        if result and (not is_heading or len(cur) < SOFT_MIN):
+        if result and (not is_heading or len(cur) < HARD_MIN):
             result[-1] = result[-1] + "\n" + cur
         else:
             result.append(cur)
