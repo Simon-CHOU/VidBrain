@@ -153,6 +153,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="启用 embedding 语义检索和 MOC 聚类（需设置 DASHSCOPE_API_KEY 环境变量）",
     )
     parser.add_argument(
+        "--chunk-all",
+        action="store_true",
+        default=False,
+        help="一次性全量盘点 vault 中所有笔记的 chunk（需 --embedding）",
+    )
+    parser.add_argument(
         "--parallel",
         type=int,
         default=0,
@@ -232,6 +238,7 @@ def build_config(args: argparse.Namespace) -> PipelineConfig:
         priority_level=args.priority,
         video_cooldown=args.video_cooldown,
         embedding_enabled=args.embedding,
+        chunk_all=args.chunk_all,
         parallel_workers=args.parallel,
         asr_backend=args.asr_backend,
         profile=args.profile,

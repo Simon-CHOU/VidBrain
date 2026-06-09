@@ -78,6 +78,7 @@ class PipelineConfig:
     priority_level: str = "normal"
     video_cooldown: int = 0
     embedding_enabled: bool = False
+    chunk_all: bool = False
     parallel_workers: int = 0
     asr_backend: str = "cpu"
     profile: str = "auto"
