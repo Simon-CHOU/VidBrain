@@ -55,3 +55,6 @@ htmlcov/
 # OS
 Thumbs.db
 .DS_Store
+
+# Eval output
+eval_results/
