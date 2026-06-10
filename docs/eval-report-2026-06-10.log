@@ -1,0 +1,31 @@
+Agent EVAL Report — 2026-06-10
+================================
+
+Branch: research/embedding-branch vs main (baseline)
+Seed vault: vidbrain_vault (612 notes, expanded to 632)
+Test videos: 38 (3 skipped — file not found)
+Valid pairs: 36
+
+Results:
+  dim A (terminology):  -0.14  (tie)
+  dim B (wikilinks):    -0.94  (main wins)
+  dim C (suggestions):  +0.00  (tie)
+  dim D (overall):      emb 0% win rate
+
+Self-doubt: dimension B flagged in 81% of reviews
+
+Conclusion: NO_MERGE
+
+Root cause:
+  1. RAG context format pollutes LLM judgment — wikilink syntax
+     ([[note_name]]) in RAG context text causes LLM to create
+     spurious wikilinks to unrelated notes
+  2. Technical term over-correction on non-technical content
+  3. All 36 pairs were "existing domain" (seed vault had related
+     notes), so this eval primarily measures RAG interference
+     rather than RAG benefit
+
+Recommendations for next iteration:
+  - Remove [[wikilink]] syntax from RAG context strings
+  - Use plain note names: "相关笔记: NoteName" instead of "[[NoteName]]"
+  - Consider a separate eval with truly "new domain" videos
