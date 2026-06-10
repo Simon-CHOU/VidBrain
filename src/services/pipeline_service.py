@@ -189,7 +189,7 @@ def process_pipeline(  # noqa: C901
                         for r in results:
                             ctx = r.full_context()
                             context_parts.append(
-                                f"--- 来源: [[{r.note_name}]] (相似度: {r.similarity:.2f}) ---\n{ctx}"
+                                f"--- 相关笔记: {r.note_name} (相似度: {r.similarity:.2f}) ---\n{ctx}"
                             )
                         rag_context = "\n\n".join(context_parts)
                         logger.info(
