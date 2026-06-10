@@ -1,0 +1,34 @@
+Agent EVAL Report
+================
+
+Date: 2026-06-10
+Branch: research/embedding-branch vs main (baseline)
+Seed vault: vidbrain_vault (713 notes)
+Test videos: 8 (all technical: 极海Channel + 课代表立正)
+Valid pairs: 8 (0 skipped)
+
+Results:
+  dim A (terminology):  -0.62  (main wins)
+  dim B (wikilinks):    -0.62  (main wins, improved from -0.94 after wikilink format fix)
+  dim C (suggestions):  +0.00  (tie)
+  dim D (overall):      emb 0% win rate
+
+Self-doubt: dim B flagged in 62% of reviews, dim A flagged in 38%
+
+Conclusion: INSUFFICIENT_DATA (8 pairs, all emb losses)
+
+Root cause:
+  RAG retrieval injects vault content into Agent prompts, but the injected
+  context does not translate into measurable quality improvement. After
+  fixing the [[wikilink]] format pollution bug, dim B improved from -0.94
+  to -0.62 but remained negative. dim A worsened. At no point in two
+  independent eval runs (36 pairs + 8 pairs) did embedding-branch win
+  a single dimension D comparison.
+
+  The hypothesis that "RAG-augmented prompts produce better Agent output"
+  is falsified for this product context (Chinese tech talk ASR → structured
+  Obsidian notes). The embedding infrastructure (chunk store, similarity
+  search) works correctly, but the prompt engineering surface does not
+  benefit from the additional context.
+
+Decision: DO NOT MERGE research/embedding-branch.
