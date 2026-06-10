@@ -165,6 +165,53 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="ASR 后端 (默认: cpu)。vulkan 需要 whisper.cpp 编译 Vulkan 支持并设置 WHISPER_CLI_PATH",
     )
     parser.add_argument(
+        "--role",
+        default="primary",
+        choices=["primary", "worker"],
+        help="运行角色（默认: primary）。worker 仅用于远端 ASR 节点模式",
+    )
+    parser.add_argument(
+        "--remote-asr-host",
+        default="",
+        help="远端 ASR worker 主机名或 IP（默认: 空，表示禁用远端 worker）",
+    )
+    parser.add_argument(
+        "--remote-asr-port",
+        type=int,
+        default=8080,
+        help="远端 ASR worker 端口（默认: 8080）",
+    )
+    parser.add_argument(
+        "--remote-asr-timeout",
+        type=float,
+        default=2.0,
+        help="远端 ASR 连接与健康检查超时秒数（默认: 2.0）",
+    )
+    parser.add_argument(
+        "--remote-asr-health-interval",
+        type=int,
+        default=10,
+        help="远端 ASR 健康探测间隔秒数（默认: 10）",
+    )
+    parser.add_argument(
+        "--remote-asr-failure-threshold",
+        type=int,
+        default=2,
+        help="远端 ASR 连续失败多少次后标记为离线（默认: 2）",
+    )
+    parser.add_argument(
+        "--remote-asr-recovery-threshold",
+        type=int,
+        default=2,
+        help="远端 ASR 连续恢复成功多少次后重新上线（默认: 2）",
+    )
+    parser.add_argument(
+        "--remote-asr-cooldown",
+        type=int,
+        default=60,
+        help="远端 ASR 熔断冷却秒数（默认: 60）",
+    )
+    parser.add_argument(
         "--profile",
         default="auto",
         choices=["auto", "idle", "active"],
@@ -234,6 +281,14 @@ def build_config(args: argparse.Namespace) -> PipelineConfig:
         embedding_enabled=args.embedding,
         parallel_workers=args.parallel,
         asr_backend=args.asr_backend,
+        role=args.role,
+        remote_asr_host=args.remote_asr_host,
+        remote_asr_port=args.remote_asr_port,
+        remote_asr_timeout_seconds=args.remote_asr_timeout,
+        remote_asr_health_interval_seconds=args.remote_asr_health_interval,
+        remote_asr_failure_threshold=args.remote_asr_failure_threshold,
+        remote_asr_recovery_threshold=args.remote_asr_recovery_threshold,
+        remote_asr_cooldown_seconds=args.remote_asr_cooldown,
         profile=args.profile,
         continuous=args.continuous,
     )

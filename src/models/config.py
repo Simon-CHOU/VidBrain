@@ -80,6 +80,14 @@ class PipelineConfig:
     embedding_enabled: bool = False
     parallel_workers: int = 0
     asr_backend: str = "cpu"
+    role: str = "primary"
+    remote_asr_host: str = ""
+    remote_asr_port: int = 8080
+    remote_asr_timeout_seconds: float = 2.0
+    remote_asr_health_interval_seconds: int = 10
+    remote_asr_failure_threshold: int = 2
+    remote_asr_recovery_threshold: int = 2
+    remote_asr_cooldown_seconds: int = 60
     profile: str = "auto"
     continuous: bool = False
 

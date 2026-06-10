@@ -60,6 +60,14 @@ class TestPipelineConfig:
         assert cfg.batch_size == 10
         assert cfg.video_cooldown == 0
         assert cfg.asr_backend == "cpu"
+        assert cfg.role == "primary"
+        assert cfg.remote_asr_host == ""
+        assert cfg.remote_asr_port == 8080
+        assert cfg.remote_asr_timeout_seconds == 2.0
+        assert cfg.remote_asr_health_interval_seconds == 10
+        assert cfg.remote_asr_failure_threshold == 2
+        assert cfg.remote_asr_recovery_threshold == 2
+        assert cfg.remote_asr_cooldown_seconds == 60
         assert cfg.profile == "auto"
         assert cfg.continuous is False
 
@@ -88,6 +96,14 @@ class TestPipelineConfig:
             embedding_enabled=True,
             parallel_workers=3,
             asr_backend="vulkan",
+            role="worker",
+            remote_asr_host="worker-host",
+            remote_asr_port=8090,
+            remote_asr_timeout_seconds=4.5,
+            remote_asr_health_interval_seconds=15,
+            remote_asr_failure_threshold=4,
+            remote_asr_recovery_threshold=3,
+            remote_asr_cooldown_seconds=90,
             profile="idle",
             continuous=True,
         )
@@ -96,6 +112,14 @@ class TestPipelineConfig:
         assert cfg.model_size == "large-v3"
         assert cfg.parallel_workers == 3
         assert cfg.asr_backend == "vulkan"
+        assert cfg.role == "worker"
+        assert cfg.remote_asr_host == "worker-host"
+        assert cfg.remote_asr_port == 8090
+        assert cfg.remote_asr_timeout_seconds == 4.5
+        assert cfg.remote_asr_health_interval_seconds == 15
+        assert cfg.remote_asr_failure_threshold == 4
+        assert cfg.remote_asr_recovery_threshold == 3
+        assert cfg.remote_asr_cooldown_seconds == 90
         assert cfg.profile == "idle"
         assert cfg.continuous is True
 

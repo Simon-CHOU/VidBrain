@@ -343,6 +343,98 @@ Windows 官方支持作为可选组件安装，并可通过：
 - 开机自动恢复
 - 稳定热插拔
 
+### 5.4 当前实现的实际启动命令示例
+
+下面这组命令基于**当前已经落地的 VidBrain 实现**，不再是假设外部 `whisper-server`，而是直接使用仓库里的：
+
+- `--role worker`
+- `--role primary`
+- `--remote-asr-host`
+- `--remote-asr-port`
+
+#### Laptop 侧：worker 节点
+
+如果 Laptop 已经具备本地 GPU / Vulkan 运行条件，优先用：
+
+```powershell
+uv run python -m vidbrain.main `
+  --role worker `
+  --asr-backend vulkan `
+  --model-size tiny `
+  --remote-asr-port 8080
+```
+
+如果 Laptop 还没配好 `vulkan`，可以先退回 CPU worker：
+
+```powershell
+uv run python -m vidbrain.main `
+  --role worker `
+  --asr-backend cpu `
+  --model-size tiny `
+  --remote-asr-port 8080
+```
+
+说明：
+
+- `worker` 模式只暴露远端 ASR 服务与健康接口
+- 不会启动数据库、watcher、vault、LLM 主流程
+- 默认监听 `0.0.0.0:8080`
+
+#### Desktop 侧：primary 主控
+
+最小可用命令：
+
+```powershell
+uv run python -m vidbrain.main `
+  --role primary `
+  --vault-dir .\my_vault `
+  --remote-asr-host LAPTOP-3J6HL311 `
+  --remote-asr-port 8080 `
+  --model-size tiny `
+  --once
+```
+
+长期运行示例：
+
+```powershell
+uv run python -m vidbrain.main `
+  --role primary `
+  --vault-dir .\my_vault `
+  --interval 30m `
+  --profile auto `
+  --remote-asr-host LAPTOP-3J6HL311 `
+  --remote-asr-port 8080 `
+  --remote-asr-timeout 2.0 `
+  --remote-asr-health-interval 10 `
+  --remote-asr-failure-threshold 2 `
+  --remote-asr-recovery-threshold 2 `
+  --remote-asr-cooldown 60 `
+  --model-size tiny
+```
+
+说明：
+
+- `primary` 角色保持当前完整主流程
+- 配置 `--remote-asr-host` 后，会优先走远端 worker
+- 远端不可用时，会按当前实现自动回退到本地 CPU ASR
+- `--model-size tiny` 在这里同时决定本地 CPU fallback 的模型
+
+#### 第一阶段推荐的实际运行顺序
+
+```powershell
+# 1. 先在 Laptop 启动 worker
+uv run python -m vidbrain.main --role worker --asr-backend vulkan --remote-asr-port 8080
+
+# 2. 再在 Desktop 启动 primary
+uv run python -m vidbrain.main --role primary --vault-dir .\my_vault --remote-asr-host LAPTOP-3J6HL311 --remote-asr-port 8080 --once
+```
+
+验证建议：
+
+- 在 Laptop 终端确认出现 worker 已启动、监听端口的日志
+- 在 Desktop 终端确认出现远端 ASR worker 已配置或远端优先的日志
+- 若 Desktop 侧启动后远端不可达，应看到自动回退本地 CPU 的日志，而不是整条管线中断
+
 ## 6. Desktop / Laptop 最小协议设计
 
 ### 6.1 稳定节点配置

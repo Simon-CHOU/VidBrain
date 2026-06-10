@@ -9,12 +9,17 @@ CLI 参数解析 + 各模块组装 + 启动。
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import signal
 import sys
+import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 
 from src.cli import build_config, parse_args
 from src.models.config import LLMConfig, PipelineConfig
@@ -22,6 +27,11 @@ from src.services.asr_service import ASREngine
 from src.services.classifier_service import classify_video
 from src.services.drafts_service import discard_draft, list_drafts, publish_draft
 from src.services.pipeline_service import process_pipeline
+from src.services.remote_asr_service import (
+    RemoteASRClient,
+    RemoteASRError,
+    RemoteFirstASREngine,
+)
 from src.utils.audit import get_audit
 from src.utils.db import DatabaseManager
 from src.utils.logger import setup_logger
@@ -465,15 +475,277 @@ def _should_refine_batches(cfg: PipelineConfig, batch_count: int, last_refine_ti
     return False
 
 
-def main(argv: list[str] | None = None) -> None:  # noqa: C901
-    """主入口函数。
+def _build_asr_engine(cfg: PipelineConfig) -> Any:
+    """按配置初始化 ASR 引擎。"""
+    if cfg.role == "primary" and cfg.remote_asr_host.strip():
+        logger.info(
+            "ASR 路由: 远端优先，失败回退本地 CPU (endpoint=%s:%d)",
+            cfg.remote_asr_host,
+            cfg.remote_asr_port,
+        )
+        logger.info(
+            "预下载本地 CPU 回退模型: size=%s, cpu_threads=%d",
+            cfg.model_size,
+            cfg.cpu_threads,
+        )
+        try:
+            ASREngine.prepare_model(cfg.model_size, cfg.cpu_threads)
+        except Exception as exc:
+            logger.exception("本地 CPU 回退模型预下载失败")
+            raise RuntimeError("本地 CPU 回退模型预下载失败") from exc
 
-    Args:
-        argv: 命令行参数列表，None 时使用 sys.argv。
-    """
-    args = parse_args(argv)
-    cfg = build_config(args)
+        local_cpu_engine = ASREngine(
+            model_size=cfg.model_size,
+            cpu_threads=cfg.cpu_threads,
+        )
+        remote_engine = RemoteFirstASREngine(
+            remote_client=RemoteASRClient(
+                host=cfg.remote_asr_host,
+                port=cfg.remote_asr_port,
+                timeout_seconds=cfg.remote_asr_timeout_seconds,
+            ),
+            local_cpu_engine=local_cpu_engine,
+            health_interval_seconds=cfg.remote_asr_health_interval_seconds,
+            failure_threshold=cfg.remote_asr_failure_threshold,
+            recovery_threshold=cfg.remote_asr_recovery_threshold,
+            cooldown_seconds=cfg.remote_asr_cooldown_seconds,
+        )
+        try:
+            remote_engine.bootstrap()
+        except RemoteASRError as exc:
+            logger.warning("远端 ASR worker 不可用，启动后将直接使用本地 CPU: %s", exc)
 
+        logger.info(
+            "ASR 引擎已创建 (model=%s, cpu_threads=%d, backend=remote-first->cpu)",
+            cfg.model_size,
+            cfg.cpu_threads,
+        )
+        return remote_engine
+
+    use_vulkan = cfg.asr_backend == "vulkan"
+
+    if use_vulkan:
+        logger.info("ASR 后端: Vulkan (whisper.cpp)")
+        from src.services.asr_vulkan_service import ASREngineVulkan
+
+        logger.info(
+            "预下载 CPU 备用模型: size=%s, cpu_threads=%d",
+            cfg.model_size,
+            cfg.cpu_threads,
+        )
+        try:
+            ASREngine.prepare_model(cfg.model_size, cfg.cpu_threads)
+        except Exception:
+            logger.warning("CPU 备用模型预下载失败（Vulkan 模式下非致命）")
+
+        asr_engine: Any = ASREngineVulkan(
+            model_size=cfg.model_size,
+            cpu_threads=cfg.cpu_threads,
+        )
+        if asr_engine.vulkan_available:
+            logger.info(
+                "Vulkan ASR 引擎已就绪 (model=%s, cpu_threads=%d)",
+                cfg.model_size,
+                cfg.cpu_threads,
+            )
+        else:
+            logger.warning("Vulkan 不可用，将使用 faster-whisper CPU 作为降级方案")
+    else:
+        logger.info("ASR 后端: CPU (faster-whisper)")
+        logger.info(
+            "预下载 ASR 模型: size=%s, cpu_threads=%d",
+            cfg.model_size,
+            cfg.cpu_threads,
+        )
+        try:
+            ASREngine.prepare_model(cfg.model_size, cfg.cpu_threads)
+        except Exception as exc:
+            logger.exception("ASR 模型预下载失败")
+            raise RuntimeError("ASR 模型预下载失败") from exc
+
+        asr_engine = ASREngine(
+            model_size=cfg.model_size,
+            cpu_threads=cfg.cpu_threads,
+        )
+
+    logger.info(
+        "ASR 引擎已创建 (model=%s, cpu_threads=%d, backend=%s)",
+        cfg.model_size,
+        cfg.cpu_threads,
+        cfg.asr_backend,
+    )
+    return asr_engine
+
+
+def _read_json_request(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
+    """读取并解析 JSON 请求体。"""
+    content_length = int(handler.headers.get("Content-Length", "0"))
+    if content_length <= 0:
+        raise ValueError("请求体为空")
+
+    raw_body = handler.rfile.read(content_length)
+    payload = json.loads(raw_body.decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("请求体必须是 JSON 对象")
+    return payload
+
+
+class _WorkerHandler(BaseHTTPRequestHandler):
+    """worker 模式下的最小 HTTP 接口。"""
+
+    server_version = "VidBrainWorker/0.1"
+    asr_engine: Any = None
+    cfg: PipelineConfig
+    started_at: float = 0.0
+
+    def log_message(self, format: str, *args: Any) -> None:
+        logger.info("Worker HTTP - " + format, *args)
+
+    def _send_json(self, payload: dict[str, Any], status: HTTPStatus = HTTPStatus.OK) -> None:
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _normalized_path(self) -> str:
+        return self.path.split("?", maxsplit=1)[0].rstrip("/") or "/"
+
+    def do_GET(self) -> None:  # noqa: N802
+        if self._normalized_path() != "/healthz":
+            self._send_json(
+                {"status": "error", "message": "not found"},
+                status=HTTPStatus.NOT_FOUND,
+            )
+            return
+
+        cfg = type(self).cfg
+        effective_backend = cfg.asr_backend
+        if cfg.asr_backend == "vulkan":
+            effective_backend = "vulkan" if type(self).asr_engine.vulkan_available else "cpu"
+
+        self._send_json(
+            {
+                "status": "ok",
+                "role": "worker",
+                "backend": effective_backend,
+                "model_size": cfg.model_size,
+                "uptime_sec": round(time.time() - type(self).started_at, 2),
+            }
+        )
+
+    def do_POST(self) -> None:  # noqa: N802
+        if self._normalized_path() != "/inference":
+            self._send_json(
+                {"status": "error", "message": "not found"},
+                status=HTTPStatus.NOT_FOUND,
+            )
+            return
+
+        temp_file_path: str | None = None
+        cfg = type(self).cfg
+        try:
+            content_type = self.headers.get("Content-Type", "")
+            if content_type.startswith("application/json"):
+                payload = _read_json_request(self)
+                file_path = str(payload.get("file_path", "")).strip()
+                if not file_path:
+                    raise ValueError("缺少 file_path")
+            else:
+                content_length = int(self.headers.get("Content-Length", "0"))
+                if content_length <= 0:
+                    raise ValueError("请求体为空")
+                raw_body = self.rfile.read(content_length)
+                with tempfile.NamedTemporaryFile(
+                    delete=False,
+                    suffix=".wav",
+                    prefix="vidbrain_worker_",
+                ) as tmp_file:
+                    tmp_file.write(raw_body)
+                    temp_file_path = tmp_file.name
+                file_path = temp_file_path
+
+            target_path = Path(file_path)
+            if not target_path.is_file():
+                self._send_json(
+                    {"status": "error", "message": f"文件不存在: {file_path}"},
+                    status=HTTPStatus.NOT_FOUND,
+                )
+                return
+
+            segments = type(self).asr_engine.transcribe(str(target_path))
+            self._send_json(
+                {
+                    "status": "ok",
+                    "segments": segments,
+                    "backend": cfg.asr_backend,
+                    "model_size": cfg.model_size,
+                }
+            )
+        except ValueError as exc:
+            self._send_json(
+                {"status": "error", "message": str(exc)},
+                status=HTTPStatus.BAD_REQUEST,
+            )
+        except json.JSONDecodeError:
+            self._send_json(
+                {"status": "error", "message": "JSON 解析失败"},
+                status=HTTPStatus.BAD_REQUEST,
+            )
+        except Exception as exc:  # pragma: no cover - 防御性日志
+            logger.exception("Worker ASR 请求处理失败: %s", exc)
+            self._send_json(
+                {"status": "error", "message": "ASR 推理失败"},
+                status=HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
+        finally:
+            if temp_file_path:
+                Path(temp_file_path).unlink(missing_ok=True)
+
+
+def _make_worker_handler(
+    asr_engine: Any, cfg: PipelineConfig, started_at: float
+) -> type[BaseHTTPRequestHandler]:
+    """构造 worker 模式下使用的 HTTP handler。"""
+    return type(
+        "WorkerHandler",
+        (_WorkerHandler,),
+        {
+            "asr_engine": asr_engine,
+            "cfg": cfg,
+            "started_at": started_at,
+        },
+    )
+
+
+def _serve_worker(asr_engine: Any, cfg: PipelineConfig) -> None:
+    """启动 worker 模式的最小 HTTP 服务面。"""
+    started_at = time.time()
+    handler_cls = _make_worker_handler(asr_engine, cfg, started_at)
+    bind_host = "0.0.0.0"
+
+    with ThreadingHTTPServer((bind_host, cfg.remote_asr_port), handler_cls) as server:
+        bound_host, bound_port = server.server_address[:2]
+        logger.info("Worker ASR 服务已启动: http://%s:%s", bound_host, bound_port)
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            logger.info("收到中断信号，Worker ASR 服务准备退出")
+        finally:
+            logger.info("Worker ASR 服务已停止")
+
+
+def run_worker(cfg: PipelineConfig) -> None:
+    """worker 角色只启动 ASR 服务与健康接口。"""
+    setup_logger()
+    logger.info("VidBrain worker 启动")
+    asr_engine = _build_asr_engine(cfg)
+    _serve_worker(asr_engine, cfg)
+
+
+def run_primary(args, cfg: PipelineConfig) -> None:  # noqa: C901
+    """primary 角色运行完整主流程。"""
     setup_logger()
     logger.info("VidBrain 启动")
 
@@ -545,34 +817,6 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
         )
         cfg.cpu_threads = effective_threads
 
-    use_vulkan = cfg.asr_backend == "vulkan"
-
-    if use_vulkan:
-        logger.info("ASR 后端: Vulkan (whisper.cpp)")
-        from src.services.asr_vulkan_service import ASREngineVulkan
-
-        logger.info(
-            "预下载 CPU 备用模型: size=%s, cpu_threads=%d",
-            cfg.model_size,
-            cfg.cpu_threads,
-        )
-        try:
-            ASREngine.prepare_model(cfg.model_size, cfg.cpu_threads)
-        except Exception:
-            logger.warning("CPU 备用模型预下载失败（Vulkan 模式下非致命）")
-    else:
-        logger.info("ASR 后端: CPU (faster-whisper)")
-        logger.info(
-            "预下载 ASR 模型: size=%s, cpu_threads=%d",
-            cfg.model_size,
-            cfg.cpu_threads,
-        )
-        try:
-            ASREngine.prepare_model(cfg.model_size, cfg.cpu_threads)
-        except Exception:
-            logger.exception("ASR 模型预下载失败，程序退出")
-            sys.exit(1)
-
     emb_config = None
     emb_store = None
     if cfg.embedding_enabled:
@@ -597,30 +841,10 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
         logger.info("--review-drafts 模式完成")
         return
 
-    if use_vulkan:
-        asr_engine = ASREngineVulkan(
-            model_size=cfg.model_size,
-            cpu_threads=cfg.cpu_threads,
-        )
-        if asr_engine.vulkan_available:
-            logger.info(
-                "Vulkan ASR 引擎已就绪 (model=%s, cpu_threads=%d)",
-                cfg.model_size,
-                cfg.cpu_threads,
-            )
-        else:
-            logger.warning("Vulkan 不可用，将使用 faster-whisper CPU 作为降级方案")
-    else:
-        asr_engine = ASREngine(
-            model_size=cfg.model_size,
-            cpu_threads=cfg.cpu_threads,
-        )
-    logger.info(
-        "ASR 引擎已创建 (model=%s, cpu_threads=%d, backend=%s)",
-        cfg.model_size,
-        cfg.cpu_threads,
-        cfg.asr_backend,
-    )
+    try:
+        asr_engine = _build_asr_engine(cfg)
+    except RuntimeError:
+        sys.exit(1)
 
     if cfg.semi:
         review_classifications(db)
@@ -804,6 +1028,18 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
             request_shutdown(None, None)
         finally:
             do_graceful_shutdown()
+
+
+def main(argv: list[str] | None = None) -> None:
+    """主入口函数。"""
+    args = parse_args(argv)
+    cfg = build_config(args)
+
+    if cfg.role == "worker":
+        run_worker(cfg)
+        return
+
+    run_primary(args, cfg)
 
 
 if __name__ == "__main__":
