@@ -147,24 +147,6 @@ def run_single_pipeline(
             logger.warning("Embedding 配置失败: %s", str(e))
             return None
 
-        # Pre-index vault notes so RAG retrieval finds chunks
-        try:
-            from src.services.chunk_service import ChunkStore
-            from src.services.embedding_service import EmbeddingEngine
-
-            chunk_store = ChunkStore(vault_dir)
-            emb_engine = EmbeddingEngine(emb_config)
-            unchunked = chunk_store.get_unchunked_notes()
-            if unchunked:
-                logger.info("Chunk 预索引: %d 篇笔记...", len(unchunked))
-                for note_name, _ in unchunked:
-                    note_path = Path(vault_dir) / f"{note_name}.md"
-                    if note_path.exists():
-                        content = note_path.read_text(encoding="utf-8", errors="replace")
-                        chunk_store.chunk_note(note_name, content, emb_engine)
-        except Exception as e:
-            logger.warning("Chunk 预索引失败 (非致命): %s", str(e))
-
     try:
         process_pipeline(
             video_id=video_id,
@@ -224,6 +206,33 @@ def main() -> None:
     # Determine if seed vault is empty (new domain indicator)
     seed_vault_path = Path(args.seed_vault)
     seed_has_notes = seed_vault_path.exists() and list(seed_vault_path.glob("*.md"))
+
+    # Pre-index seed vault for RAG (one-time, before video loop)
+    if seed_has_notes:
+        try:
+            emb_cfg = EmbeddingConfig()
+        except OSError:
+            emb_cfg = None
+        if emb_cfg is not None:
+            from src.services.chunk_service import ChunkStore
+            from src.services.embedding_service import EmbeddingEngine
+
+            logger.info("预索引 seed vault: %s ...", args.seed_vault)
+            chunk_store = ChunkStore(args.seed_vault)
+            emb_engine = EmbeddingEngine(emb_cfg)
+            unchunked = chunk_store.get_unchunked_notes()
+            if unchunked:
+                logger.info("Chunk 预索引: %d 篇笔记 (仅一次)...", len(unchunked))
+                for j, (note_name, _) in enumerate(unchunked):
+                    note_path = seed_vault_path / f"{note_name}.md"
+                    if note_path.exists():
+                        content = note_path.read_text(encoding="utf-8", errors="replace")
+                        chunk_store.chunk_note(note_name, content, emb_engine)
+                    if (j + 1) % 100 == 0:
+                        logger.info("  进度: %d/%d", j + 1, len(unchunked))
+                logger.info("Chunk 预索引完成: %d 篇", len(unchunked))
+            else:
+                logger.info("Seed vault 已全部索引")
 
     for i, video_path in enumerate(videos):
         logger.info("=== 视频 %d/%d: %s ===", i + 1, len(videos), video_path)
