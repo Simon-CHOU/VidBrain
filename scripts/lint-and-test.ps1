@@ -5,6 +5,20 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+$running = Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -match 'vidbrain' }
+if ($running) {
+    Write-Host ""
+    Write-Host "VidBrain daemon is running and will interfere with this script (DB locks, CPU contention)." -ForegroundColor Yellow
+    Write-Host "Stop the daemon with Ctrl+C first, then re-run lint-and-test." -ForegroundColor Yellow
+    Write-Host ""
+    foreach ($proc in $running) {
+        Write-Host "  PID $($proc.ProcessId): $($proc.CommandLine)" -ForegroundColor DarkGray
+    }
+    Write-Host ""
+    exit 1
+}
+
 function Invoke-Step {
     param(
         [Parameter(Mandatory = $true)]
