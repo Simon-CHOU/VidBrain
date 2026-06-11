@@ -864,6 +864,14 @@ def run_primary(args, cfg: PipelineConfig) -> None:  # noqa: C901
         logger.info("单次模式完成")
         return
 
+    # 持续模式需要有效的 input_dir
+    if not cfg.input_dir:
+        logger.error(
+            "持续/定时模式需要指定 --input-dir（输入目录）。"
+            "请使用 --input-dir <目录> 指定包含 .mp4 视频的目录。"
+        )
+        sys.exit(1)
+
     executor = ThreadPoolExecutor(max_workers=max(1, cfg.parallel_workers))
     Path(cfg.input_dir).mkdir(parents=True, exist_ok=True)
     observer = start_watcher(cfg.input_dir, db, asr_engine, llm_config, cfg, executor)
