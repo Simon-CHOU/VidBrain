@@ -32,6 +32,43 @@ Why this is the recommended default:
 
 Stop it with `Ctrl+C` once for a graceful shutdown.
 
+## Remote ASR Quick Start
+
+If you want to keep `Desktop` as the main VidBrain process and offload ASR to a `Laptop`, use this `primary/worker` setup.
+
+Laptop side, start the remote ASR worker:
+
+```powershell
+uv run python -m vidbrain.main --role worker --asr-backend vulkan --model-size tiny --remote-asr-port 8080
+```
+
+If the Laptop is not ready for `vulkan` yet, use CPU first:
+
+```powershell
+uv run python -m vidbrain.main --role worker --asr-backend cpu --model-size tiny --remote-asr-port 8080
+```
+
+Desktop side, start the main VidBrain process and point it at the Laptop:
+
+```powershell
+uv run python -m vidbrain.main --role primary --vault-dir ./my_vault --remote-asr-host LAPTOP-3J6HL311 --remote-asr-port 8080 --profile auto --interval 30m
+```
+
+Minimal one-shot test:
+
+```powershell
+uv run python -m vidbrain.main --role primary --vault-dir ./my_vault --remote-asr-host LAPTOP-3J6HL311 --remote-asr-port 8080 --once
+```
+
+What this gives you:
+
+- `Laptop` only runs the remote ASR worker.
+- `Desktop` keeps the full VidBrain pipeline and Obsidian output flow.
+- VidBrain prefers the remote worker when it is healthy.
+- VidBrain falls back to local CPU ASR if the remote worker is unavailable.
+
+See [vidbrain-remote-asr-feasibility.md](docs/vidbrain-remote-asr-feasibility.md) for the fuller setup guide, health-check behavior, and the `Task Scheduler` worker auto-start example.
+
 ## Manual
 
 Detailed commands, operating modes, stop/check instructions, and the full CLI reference now live in [manual.md](docs/manual.md).
