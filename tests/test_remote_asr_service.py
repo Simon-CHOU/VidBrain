@@ -34,7 +34,11 @@ class _RemoteASRHandler(BaseHTTPRequestHandler):
 
         content_length = int(self.headers.get("Content-Length", "0"))
         request_body = self.rfile.read(content_length)
-        assert request_body == b"fake-video-binary"
+        content_type = self.headers.get("Content-Type", "")
+        assert "multipart/form-data" in content_type
+        assert b'name="file"; filename="' in request_body
+        assert b".wav" in request_body
+        assert b"fake-wav-binary" in request_body
         payload = {
             "status": "ok",
             "segments": [{"start": 0.0, "end": 1.25, "text": "remote transcript"}],
@@ -52,8 +56,8 @@ class _RemoteASRHandler(BaseHTTPRequestHandler):
 
 class TestRemoteASRClient:
     def test_health_and_inference(self, tmp_path: Path) -> None:
-        sample_video = tmp_path / "sample.mp4"
-        sample_video.write_bytes(b"fake-video-binary")
+        sample_wav = tmp_path / "sample.wav"
+        sample_wav.write_bytes(b"fake-wav-binary")
 
         server = ThreadingHTTPServer(("127.0.0.1", 0), _RemoteASRHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -66,10 +70,38 @@ class TestRemoteASRClient:
                 timeout_seconds=1.0,
             )
             health = client.check_health()
-            segments = client.transcribe(str(sample_video))
+            segments = client.transcribe(str(sample_wav))
 
             assert health["status"] == "ok"
             assert health["backend"] == "vulkan"
+            assert segments == [{"start": 0.0, "end": 1.25, "text": "remote transcript"}]
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+    def test_inference_extracts_wav_before_upload(self, tmp_path: Path) -> None:
+        sample_video = tmp_path / "sample.mp4"
+        sample_video.write_bytes(b"fake-video-binary")
+        extracted_wav = tmp_path / "extracted.wav"
+        extracted_wav.write_bytes(b"fake-wav-binary")
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), _RemoteASRHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+
+        try:
+            client = RemoteASRClient(
+                host="127.0.0.1",
+                port=server.server_address[1],
+                timeout_seconds=1.0,
+            )
+            with patch(
+                "src.services.remote_asr_service._extract_audio", return_value=str(extracted_wav)
+            ) as mock_extract:
+                segments = client.transcribe(str(sample_video))
+
+            mock_extract.assert_called_once_with(str(sample_video))
             assert segments == [{"start": 0.0, "end": 1.25, "text": "remote transcript"}]
         finally:
             server.shutdown()

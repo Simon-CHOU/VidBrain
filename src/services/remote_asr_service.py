@@ -12,14 +12,19 @@ from __future__ import annotations
 
 import json
 import logging
+import mimetypes
+import os
 import socket
 import threading
 import time
+import uuid
 from enum import Enum
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+from src.services.asr_vulkan_service import _extract_audio
 
 logger = logging.getLogger("vidbrain.remote_asr")
 
@@ -64,15 +69,32 @@ class RemoteASRClient:
 
     def transcribe(self, file_path: str) -> list[dict[str, Any]]:
         """上传文件内容到 worker 并返回统一的 ASR 段列表。"""
-        file_bytes = Path(file_path).read_bytes()
-        payload = self._request_json(
-            Request(
-                url=f"{self._base_url}/inference",
-                data=file_bytes,
-                headers={"Content-Type": "application/octet-stream"},
-                method="POST",
+        upload_path = file_path
+        cleanup_upload = False
+        if Path(file_path).suffix.lower() != ".wav":
+            try:
+                upload_path = _extract_audio(file_path)
+                cleanup_upload = True
+            except Exception as exc:
+                raise RemoteASRError(f"远端 ASR 音频提取失败: {file_path}, error={exc}") from exc
+
+        try:
+            body, content_type = self._build_multipart_body(upload_path)
+            payload = self._request_json(
+                Request(
+                    url=f"{self._base_url}/inference",
+                    data=body,
+                    headers={"Content-Type": content_type},
+                    method="POST",
+                )
             )
-        )
+        finally:
+            if cleanup_upload:
+                try:
+                    os.unlink(upload_path)
+                except OSError:
+                    pass
+
         if payload.get("status") != "ok":
             raise RemoteASRError(f"远端 ASR 返回错误: {payload}")
 
@@ -80,6 +102,25 @@ class RemoteASRClient:
         if not isinstance(segments, list):
             raise RemoteASRError("远端 ASR 响应缺少 segments 列表")
         return segments
+
+    @staticmethod
+    def _build_multipart_body(file_path: str) -> tuple[bytes, str]:
+        """构造 multipart/form-data 请求体，字段名固定为 `file`。"""
+        path = Path(file_path)
+        file_bytes = path.read_bytes()
+        boundary = f"----VidBrainBoundary{uuid.uuid4().hex}"
+        content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        parts = [
+            f"--{boundary}\r\n".encode("utf-8"),
+            (f'Content-Disposition: form-data; name="file"; filename="{path.name}"\r\n').encode(
+                "utf-8"
+            ),
+            f"Content-Type: {content_type}\r\n\r\n".encode("utf-8"),
+            file_bytes,
+            b"\r\n",
+            f"--{boundary}--\r\n".encode("utf-8"),
+        ]
+        return b"".join(parts), f"multipart/form-data; boundary={boundary}"
 
     def _request_json(self, request: Request) -> dict[str, Any]:
         """发送 HTTP 请求并解析 JSON 响应。"""
