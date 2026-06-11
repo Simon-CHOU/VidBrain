@@ -435,6 +435,56 @@ uv run python -m vidbrain.main --role primary --vault-dir .\my_vault --remote-as
 - 在 Desktop 终端确认出现远端 ASR worker 已配置或远端优先的日志
 - 若 Desktop 侧启动后远端不可达，应看到自动回退本地 CPU 的日志，而不是整条管线中断
 
+#### Windows Task Scheduler 的 worker 自启动示例
+
+如果你希望 `Laptop` 开机后自动把自己拉起成算力节点，推荐在 `Task Scheduler` 里把 `VidBrain worker` 配成开机自启动任务。
+
+推荐命令：
+
+```powershell
+uv run python -m vidbrain.main --role worker --asr-backend vulkan --model-size tiny --remote-asr-port 8080
+```
+
+如果这台 `Laptop` 还没配置好 `vulkan`，可以先退回 CPU 版本：
+
+```powershell
+uv run python -m vidbrain.main --role worker --asr-backend cpu --model-size tiny --remote-asr-port 8080
+```
+
+更稳妥的方式是让 `Task Scheduler` 调用 `powershell.exe`，并在参数里先切到仓库目录再启动 worker。
+
+`Program/script`
+
+```text
+powershell.exe
+```
+
+`Add arguments`
+
+```text
+-NoProfile -ExecutionPolicy Bypass -Command "Set-Location 'F:\ML\bailian-playground\VidBrain'; uv run python -m vidbrain.main --role worker --asr-backend vulkan --model-size tiny --remote-asr-port 8080"
+```
+
+`Start in`
+
+```text
+F:\ML\bailian-playground\VidBrain
+```
+
+建议的 `Task Scheduler` 选项：
+
+- Trigger: `At log on` 或 `At startup`
+- 勾选 `Run whether user is logged on or not`
+- 勾选 `Run with highest privileges`
+- 在 `Conditions` 里关闭“只有接通交流电才运行”之类会影响 Laptop 稳定性的限制
+- 在 `Settings` 里启用“如果任务失败则自动重试”
+
+说明：
+
+- 这只是 `worker` 自启动，不会把 `Laptop` 变成主控机
+- `Desktop` 仍然通过显式 `--remote-asr-host <Laptop主机名>` 连接它
+- 这套方式仍然符合本方案的核心结论：`显式地址 + 健康检查` 优先，**不是**自动扫描发现
+
 ## 6. Desktop / Laptop 最小协议设计
 
 ### 6.1 稳定节点配置
