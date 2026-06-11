@@ -9,7 +9,7 @@
 
 自包含设计：
 - 所有运行时产物（数据库、日志、模型缓存）均在项目目录内
-- 项目外路径仅限：I:/web-videos（只读输入）、--vault-dir（知识库输出）
+- 项目外路径仅限 --input-dir（只读输入）、--vault-dir（知识库输出）
 """
 
 from __future__ import annotations
@@ -22,9 +22,13 @@ from pathlib import Path
 # ── 确保模型缓存位于项目内部 ──
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _MODEL_CACHE = str(_PROJECT_ROOT / ".model_cache")
-os.environ["HF_HOME"] = _MODEL_CACHE
-os.environ["HF_HUB_CACHE"] = _MODEL_CACHE
-os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+
+
+def setup_environment() -> None:
+    """设置 HF 缓存路径和镜像，应在 main() 中调用而非 import 时执行。"""
+    os.environ.setdefault("HF_HOME", _MODEL_CACHE)
+    os.environ.setdefault("HF_HUB_CACHE", _MODEL_CACHE)
+    os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 
 
 @dataclass
@@ -58,10 +62,10 @@ class PipelineConfig:
     重要约束：程序永远不得修改 input_dir 下的任何文件（增删改）。
     """
 
-    input_dir: str = r"I:\web-videos"
+    input_dir: str = ""  # 必须通过 --input-dir CLI 参数指定
     vault_dir: str = ""
     db_path: str = "./pipeline.db"
-    model_size: str = "small"
+    model_size: str = "tiny"  # 统一默认值：桌面友好，可按需用 --model-size 覆盖
     cpu_threads: int = field(default_factory=lambda: max(1, multiprocessing.cpu_count() - 1))
     once: bool = False
     limit: int = 0

@@ -22,6 +22,9 @@ class DatabaseManager:
         """初始化数据库表结构及触发器。"""
         with self._lock:
             with sqlite3.connect(self._db_path) as conn:
+                # 启用 WAL 模式（写不阻塞读）+ 降低同步级别
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA synchronous=NORMAL")
                 conn.execute("""
                     CREATE TABLE IF NOT EXISTS video_pipeline (
                         id TEXT PRIMARY KEY,
@@ -38,26 +41,18 @@ class DatabaseManager:
                         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
-                # 兼容旧表：如果列不存在则添加
+                # 兼容旧表：仅在列不存在时才 ALTER TABLE
+                existing_cols = {
+                    r[1] for r in conn.execute("PRAGMA table_info(video_pipeline)").fetchall()
+                }
                 for col, col_type in [
                     ("category", "TEXT"),
                     ("classify_reason", "TEXT"),
                     ("retry_count", "INTEGER DEFAULT 0"),
                     ("last_error", "TEXT"),
                 ]:
-                    try:
+                    if col not in existing_cols:
                         conn.execute(f"ALTER TABLE video_pipeline ADD COLUMN {col} {col_type}")
-                    except sqlite3.OperationalError:
-                        pass  # 列已存在
-                # 自动更新 updated_at 的触发器
-                conn.execute("""
-                    CREATE TRIGGER IF NOT EXISTS trg_video_pipeline_updated_at
-                    AFTER UPDATE ON video_pipeline
-                    FOR EACH ROW
-                    BEGIN
-                        UPDATE video_pipeline SET updated_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
-                    END;
-                """)
 
                 # ── Metrics 快照表 ──
                 conn.execute("""
@@ -94,6 +89,12 @@ class DatabaseManager:
                 """)
 
                 conn.commit()
+
+    def _get_conn(self) -> sqlite3.Connection:
+        """获取持久化连接（延迟创建，配合 check_same_thread=False）。"""
+        if not hasattr(self, "_conn") or self._conn is None:
+            self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
+        return self._conn
 
     def create_task(self, video_id: str, video_name: str, file_path: str) -> None:
         """插入新任务（如已存在则忽略）。"""
@@ -266,6 +267,9 @@ class DatabaseManager:
         异常退出后，任务可能卡在 ASR_PROCESSING 或 AGENT_PROCESSING。
         此方法在启动时调用，将它们重置为 PENDING 以便重新处理。
 
+        注意：AGENT_DONE 状态的任务已完成 LLM 处理，仅需重试写入步骤，
+        不会被重置（避免浪费 API Token 重新生成已完成的 Agent 输出）。
+
         Returns:
             被恢复的任务数量。
         """
@@ -273,7 +277,7 @@ class DatabaseManager:
             with sqlite3.connect(self._db_path) as conn:
                 cursor = conn.execute(
                     "UPDATE video_pipeline SET status='PENDING' "
-                    "WHERE status IN ('ASR_PROCESSING', 'AGENT_PROCESSING', 'AGENT_DONE')"
+                    "WHERE status IN ('ASR_PROCESSING', 'AGENT_PROCESSING')"
                 )
                 conn.commit()
                 return cursor.rowcount

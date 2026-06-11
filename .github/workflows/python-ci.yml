@@ -35,10 +35,10 @@ jobs:
         run: ruff check src/ tests/
 
       - name: Lint with pylint
-        run: "pylint src/ --fail-under=7.0 --max-line-length=100 || true"
+        run: "pylint src/ --fail-under=7.0 --max-line-length=100"
 
       - name: Type check with mypy
-        run: "mypy src/ --ignore-missing-imports || true"
+        run: "mypy src/ --ignore-missing-imports"
 
       - name: Run tests with coverage
         run: |

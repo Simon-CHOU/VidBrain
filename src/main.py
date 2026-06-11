@@ -3,7 +3,7 @@ VidBrain 主入口。
 
 CLI 参数解析 + 各模块组装 + 启动。
 
-重要约束：程序永远不得修改 input_dir（即 I:/web-videos）下的任何文件。
+重要约束：程序永远不得修改 input_dir 下的任何文件。
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from src.cli import build_config, parse_args
-from src.models.config import LLMConfig, PipelineConfig
+from src.models.config import LLMConfig, PipelineConfig, setup_environment
 from src.services.asr_service import ASREngine
 from src.services.classifier_service import classify_video
 from src.services.drafts_service import discard_draft, list_drafts, publish_draft
@@ -474,6 +474,9 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
     args = parse_args(argv)
     cfg = build_config(args)
 
+    # 设置 HF 环境变量（必须在任何 HF 相关导入前调用）
+    setup_environment()
+
     setup_logger()
     logger.info("VidBrain 启动")
 
@@ -534,7 +537,8 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
 
     if perf_profile.mode == "auto":
         _apply_profile_params()
-    elif cfg.parallel_workers > 0:
+    # 无论 profile 模式，当 parallel_workers > 0 时都需分割 cpu_threads
+    if cfg.parallel_workers > 0:
         effective_threads = max(2, cfg.cpu_threads // cfg.parallel_workers)
         logger.info(
             "并行模式: workers=%d, cpu_threads 调整为 %d (原 %d)",

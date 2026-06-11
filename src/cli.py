@@ -47,8 +47,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--input-dir",
-        default=r"I:\web-videos",
-        help="输入目录（存放 .mp4 网络视频，默认: I:\\web-videos）",
+        default="",
+        help="输入目录（存放 .mp4 网络视频，必须通过此参数显式指定）",
     )
     parser.add_argument(
         "--vault-dir",

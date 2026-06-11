@@ -56,7 +56,7 @@ class TestPipelineConfig:
     def test_default_values(self) -> None:
         """Should have sensible default values."""
         cfg = PipelineConfig()
-        assert cfg.model_size == "small"
+        assert cfg.model_size == "tiny"
         assert cfg.batch_size == 10
         assert cfg.video_cooldown == 0
         assert cfg.asr_backend == "cpu"
@@ -101,6 +101,8 @@ class TestPipelineConfig:
 
 
 def test_hf_env_vars_set() -> None:
-    """Verify HF environment variables are set on module import."""
+    """Verify HF environment variables are set on calling setup_environment()."""
+    from src.models.config import setup_environment
+    setup_environment()
     assert "HF_HOME" in os.environ
     assert "HF_HUB_CACHE" in os.environ

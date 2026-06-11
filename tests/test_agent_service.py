@@ -47,7 +47,6 @@ class TestCreateAgentGraph:
         mock_llm.side_effect = [
             "## Intro\n\nCleaned markdown with [[Python]]",
             "## Intro\n\nLinked [[Python]] [[CUDA]]",
-            '{"suggestions": [{"target_note": "Old", "type": "ref", "content": "see new"}]}',
         ]
         graph = create_agent_graph(llm_config)
         state = {
@@ -62,17 +61,16 @@ class TestCreateAgentGraph:
                     "content_preview": "old note about Python",
                 }
             ],
-            "update_suggestions": [],
             "final_markdown": "",
             "feedback_context": "prefer links to Python",
         }
         result = graph.invoke(state)
         assert "final_markdown" in result
-        assert len(result.get("update_suggestions", [])) >= 0
+        assert "## Intro" in result["final_markdown"]
 
     @patch("src.services.agent_service._call_llm")
     @patch("src.services.agent_service.OpenAI")
-    def test_suggest_update_skipped_without_related(
+    def test_two_node_graph_returns_final_markdown(
         self, mock_openai, mock_llm, llm_config: LLMConfig
     ) -> None:
         mock_llm.side_effect = ["md1", "md2"]
@@ -83,17 +81,18 @@ class TestCreateAgentGraph:
             "raw_text": "text",
             "existing_notes": [],
             "related_notes": [],
-            "update_suggestions": [],
             "final_markdown": "",
             "feedback_context": "",
         }
         result = graph.invoke(state)
-        assert result["update_suggestions"] == []
+        assert "final_markdown" in result
 
     @patch("src.services.agent_service._call_llm")
     @patch("src.services.agent_service.OpenAI")
-    def test_suggest_update_bad_json(self, mock_openai, mock_llm, llm_config: LLMConfig) -> None:
-        mock_llm.side_effect = ["md1", "md2", "not json at all"]
+    def test_feedback_context_included_in_link_prompt(
+        self, mock_openai, mock_llm, llm_config: LLMConfig
+    ) -> None:
+        mock_llm.side_effect = ["md1", "md2"]
         graph = create_agent_graph(llm_config)
         state = {
             "video_id": "v1",
@@ -101,9 +100,8 @@ class TestCreateAgentGraph:
             "raw_text": "text",
             "existing_notes": ["A"],
             "related_notes": [{"name": "A", "match_terms": ["t"], "content_preview": "p"}],
-            "update_suggestions": [],
             "final_markdown": "",
-            "feedback_context": "",
+            "feedback_context": "user prefer concise notes",
         }
         result = graph.invoke(state)
-        assert result["update_suggestions"] == []
+        assert "final_markdown" in result

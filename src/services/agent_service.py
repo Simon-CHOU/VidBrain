@@ -1,17 +1,18 @@
 """
 LangGraph Agent 工作流。
 
-定义基于 DeepSeek API 的三阶段知识处理流程：
+定义基于 DeepSeek API 的两阶段知识处理流程：
 1. clean_and_extract：术语纠错 + 分段 + 提炼核心知识
 2. auto_link：基于 Obsidian Vault 已有笔记生成 [[双链]]
-3. suggest_update：分析是否需要更新关联已有笔记
+
+注：关联笔记更新由 updater_service.check_and_update() 独立负责，
+不在 Agent 图内重复执行。
 """
 
 from __future__ import annotations
 
-import json
 import logging
-import re as _re
+import threading
 import time
 from typing import Any, Dict
 
@@ -24,6 +25,23 @@ from src.utils.audit import get_audit
 from src.utils.metrics import get_metrics
 
 logger = logging.getLogger("vidbrain.agent")
+
+# 全局 OpenAI 客户端缓存，避免重复创建 HTTP 连接池
+_openai_clients: Dict[str, OpenAI] = {}
+_client_lock = threading.Lock()
+
+# Agent 图编译缓存（避免每视频重复编译）
+_cached_graph: tuple | None = None  # (cache_key, compiled_graph)
+_graph_lock = threading.Lock()
+
+
+def get_shared_client(api_key: str, base_url: str) -> OpenAI:
+    """获取或创建共享的 OpenAI 客户端，按 (base_url, api_key_prefix) 缓存。"""
+    cache_key = f"{base_url}::{api_key[:8]}"
+    with _client_lock:
+        if cache_key not in _openai_clients:
+            _openai_clients[cache_key] = OpenAI(api_key=api_key, base_url=base_url)
+        return _openai_clients[cache_key]
 
 
 def _call_llm(client: OpenAI, model: str, prompt: str, temperature: float) -> str:
@@ -59,10 +77,16 @@ def _call_llm(client: OpenAI, model: str, prompt: str, temperature: float) -> st
 
 
 def create_agent_graph(llm_config: LLMConfig):  # noqa: C901
-    """创建并编译 LangGraph Agent 工作流。"""
-    client = OpenAI(api_key=llm_config.api_key, base_url=llm_config.base_url)
+    """创建并编译 LangGraph Agent 工作流（编译结果被手动缓存）。"""
+    # 手动缓存：LLMConfig 不可 hash，用 (api_key_prefix, base_url, model) 作为键
+    global _cached_graph
+    cache_key = (llm_config.api_key[:8], llm_config.base_url, llm_config.model)
+    with _graph_lock:
+        if _cached_graph is not None and _cached_graph[0] == cache_key:
+            return _cached_graph[1]
+
+    client = get_shared_client(llm_config.api_key, llm_config.base_url)
     model = llm_config.model
-    # 注意：不要在日志中记录 api_key
 
     def clean_and_extract_node(state: AgentState) -> Dict[str, Any]:
         """节点 1：术语纠错 + 分段 + 提炼核心知识。"""
@@ -100,61 +124,14 @@ def create_agent_graph(llm_config: LLMConfig):  # noqa: C901
         content = _call_llm(client, model, prompt, temperature=0.1)
         return {"final_markdown": content}
 
-    def suggest_update_node(state: AgentState) -> Dict[str, Any]:
-        """节点 3：分析是否需要更新关联已有笔记。"""
-        related = state.get("related_notes", [])
-        if not related:
-            logger.info("[Agent] 无关联笔记，跳过更新建议")
-            return {"update_suggestions": []}
-
-        logger.info("[Agent] 生成更新建议 (关联 %d 篇笔记): %s", len(related), state["video_name"])
-
-        # 构建关联笔记摘要
-        related_summary_parts: list[str] = []
-        for rn in related:
-            preview = rn.get("content_preview", "")
-            related_summary_parts.append(
-                f"- 笔记: {rn['name']}\n  匹配术语: {', '.join(rn['match_terms'])}\n  内容预览: {preview[:200]}"  # noqa: E501
-            )
-        related_summary = "\n".join(related_summary_parts)
-
-        new_preview = state["final_markdown"][:600]
-
-        prompt = (
-            f"Given this NEW note about \"{state['video_name']}\" and EXISTING related notes below, "
-            "determine if each existing note should be updated.\n\n"
-            "Options:\n"
-            "- 'none': no update needed\n"
-            "- 'ref': add a reference link at the bottom\n"
-            "- 'supplement': add supplementary content\n\n"
-            f"## New Note Content (preview)\n{new_preview}\n\n"
-            f"## Existing Related Notes\n{related_summary}\n\n"
-            "Output JSON:\n"
-            '{"suggestions": [{"target_note": "<name>", "type": "ref|supplement|none", '
-            '"content": "markdown text to append"}]}'
-        )
-
-        raw_json = _call_llm(client, model, prompt, temperature=0.1)
-        try:
-            json_match = _re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw_json, _re.DOTALL)
-            if json_match:
-                raw_json = json_match.group(1)
-            result = json.loads(raw_json)
-            suggestions = result.get("suggestions", [])
-            filtered = [s for s in suggestions if s.get("type", "none") != "none"]
-            logger.info("[Agent] 更新建议生成完成: %d 条", len(filtered))
-            return {"update_suggestions": filtered}
-        except Exception:
-            logger.warning("[Agent] 解析更新建议 JSON 失败")
-            return {"update_suggestions": []}
-
     workflow = StateGraph(AgentState)
     workflow.add_node("clean_and_extract", clean_and_extract_node)
     workflow.add_node("auto_link", auto_link_node)
-    workflow.add_node("suggest_update", suggest_update_node)
     workflow.set_entry_point("clean_and_extract")
     workflow.add_edge("clean_and_extract", "auto_link")
-    workflow.add_edge("auto_link", "suggest_update")
-    workflow.add_edge("suggest_update", END)
+    workflow.add_edge("auto_link", END)
 
-    return workflow.compile()
+    compiled = workflow.compile()
+    with _graph_lock:
+        _cached_graph = (cache_key, compiled)
+    return compiled
