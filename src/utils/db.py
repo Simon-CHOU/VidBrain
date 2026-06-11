@@ -90,11 +90,27 @@ class DatabaseManager:
 
                 conn.commit()
 
-    def _get_conn(self) -> sqlite3.Connection:
-        """获取持久化连接（延迟创建，配合 check_same_thread=False）。"""
-        if not hasattr(self, "_conn") or self._conn is None:
-            self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
-        return self._conn
+    def get_failed_retryable(self) -> list[dict]:
+        """获取所有可重试的失败任务（retry_count < 3 的 FAILED/PERMANENTLY_FAILED）。"""
+        with self._lock:
+            with sqlite3.connect(self._db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    "SELECT * FROM video_pipeline "
+                    "WHERE status IN ('FAILED', 'PERMANENTLY_FAILED') "
+                    "AND COALESCE(retry_count, 0) < 3"
+                ).fetchall()
+                return [dict(r) for r in rows]
+
+    def get_unclear_videos(self) -> list[tuple[str, str, str]]:
+        """返回所有 category='unclear' 的 (id, video_name, file_path)。"""
+        with self._lock:
+            with sqlite3.connect(self._db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    "SELECT id, video_name, file_path FROM video_pipeline WHERE category='unclear'"
+                ).fetchall()
+                return [(r["id"], r["video_name"], r["file_path"]) for r in rows]
 
     def create_task(self, video_id: str, video_name: str, file_path: str) -> None:
         """插入新任务（如已存在则忽略）。"""
@@ -235,21 +251,23 @@ class DatabaseManager:
                 return [(r[0], r[1], r[2]) for r in rows]
 
     def increment_retry(self, video_id: str, error_msg: str) -> int:
-        """失败时自增重试计数，返回新的重试次数。若已达上限则返回 -1。"""
+        """失败时原子自增重试计数，返回新的重试次数。"""
         with self._lock:
             with sqlite3.connect(self._db_path) as conn:
+                cursor = conn.execute(
+                    "UPDATE video_pipeline "
+                    "SET retry_count = COALESCE(retry_count, 0) + 1, last_error = ? "
+                    "WHERE id = ?",
+                    (error_msg, video_id),
+                )
+                conn.commit()
+                if cursor.rowcount == 0:
+                    return 0
                 row = conn.execute(
                     "SELECT COALESCE(retry_count, 0) AS cnt FROM video_pipeline WHERE id=?",
                     (video_id,),
                 ).fetchone()
-                current = row[0] if row else 0
-                new_count = current + 1
-                conn.execute(
-                    "UPDATE video_pipeline SET retry_count=?, last_error=? WHERE id=?",
-                    (new_count, error_msg, video_id),
-                )
-                conn.commit()
-                return new_count
+                return row[0] if row else 0
 
     def reset_retry(self, video_id: str) -> None:
         """手动重置重试计数，将 FAILED 任务恢复为 PENDING 以便重新处理。"""
@@ -264,11 +282,10 @@ class DatabaseManager:
     def recover_stuck_tasks(self) -> int:
         """将卡在中间状态的任务恢复为 PENDING，实现断点续运行。
 
-        异常退出后，任务可能卡在 ASR_PROCESSING 或 AGENT_PROCESSING。
-        此方法在启动时调用，将它们重置为 PENDING 以便重新处理。
-
-        注意：AGENT_DONE 状态的任务已完成 LLM 处理，仅需重试写入步骤，
-        不会被重置（避免浪费 API Token 重新生成已完成的 Agent 输出）。
+        异常退出后，任务可能卡在 ASR_PROCESSING、AGENT_PROCESSING 或 AGENT_DONE。
+        AGENT_DONE 任务已完成 LLM 处理并持久化了结果到 raw_asr_json，
+        但 crash 在 vault 写入步骤；恢复为 PENDING 后重跑整个 pipeline 会浪费
+        API token 但能保证任务不丢失。未来可优化为仅重试写入步骤。
 
         Returns:
             被恢复的任务数量。
@@ -277,7 +294,7 @@ class DatabaseManager:
             with sqlite3.connect(self._db_path) as conn:
                 cursor = conn.execute(
                     "UPDATE video_pipeline SET status='PENDING' "
-                    "WHERE status IN ('ASR_PROCESSING', 'AGENT_PROCESSING')"
+                    "WHERE status IN ('ASR_PROCESSING', 'AGENT_PROCESSING', 'AGENT_DONE')"
                 )
                 conn.commit()
                 return cursor.rowcount

@@ -147,19 +147,19 @@ ASR_PROCESSING / AGENT_PROCESSING → PENDING (启动恢复)
 
 ### 6.1 全自动模式（默认）
 ```bash
-uv run python -m src.main --input-dir ./videos --vault-dir ./my_vault --interval 30m
+uv run python -m src.main --input-dir ./videos --vault-dir ./vidbrain_vault --interval 30m
 ```
 每一轮：等待 30 分钟 → 扫描新文件 → 分类 → 处理一批（ASR → Agent → 写入 Vault）
 
 ### 6.2 流式持续模式
 ```bash
-uv run python -m src.main --input-dir ./videos --vault-dir ./my_vault --continuous
+uv run python -m src.main --input-dir ./videos --vault-dir ./vidbrain_vault --continuous
 ```
 处理完一个视频立即取下一个，不等待间隔。
 
 ### 6.3 半自动模式
 ```bash
-uv run python -m src.main --input-dir ./videos --vault-dir ./my_vault --semi
+uv run python -m src.main --input-dir ./videos --vault-dir ./vidbrain_vault --semi
 ```
 人工审核门禁：分类审核 → 队列审批 → 处理 → 草稿审核。
 

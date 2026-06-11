@@ -357,7 +357,7 @@ Windows 官方支持作为可选组件安装，并可通过：
 如果 Laptop 已经具备本地 GPU / Vulkan 运行条件，优先用：
 
 ```powershell
-uv run python -m vidbrain.main `
+uv run python -m src.main `
   --role worker `
   --asr-backend vulkan `
   --model-size tiny `
@@ -367,7 +367,7 @@ uv run python -m vidbrain.main `
 如果 Laptop 还没配好 `vulkan`，可以先退回 CPU worker：
 
 ```powershell
-uv run python -m vidbrain.main `
+uv run python -m src.main `
   --role worker `
   --asr-backend cpu `
   --model-size tiny `
@@ -385,9 +385,9 @@ uv run python -m vidbrain.main `
 最小可用命令：
 
 ```powershell
-uv run python -m vidbrain.main `
+uv run python -m src.main `
   --role primary `
-  --vault-dir .\my_vault `
+  --vault-dir .\vidbrain_vault `
   --remote-asr-host LAPTOP-3J6HL311 `
   --remote-asr-port 8080 `
   --model-size tiny `
@@ -397,9 +397,9 @@ uv run python -m vidbrain.main `
 长期运行示例：
 
 ```powershell
-uv run python -m vidbrain.main `
+uv run python -m src.main `
   --role primary `
-  --vault-dir .\my_vault `
+  --vault-dir .\vidbrain_vault `
   --interval 30m `
   --profile auto `
   --remote-asr-host LAPTOP-3J6HL311 `
@@ -423,10 +423,10 @@ uv run python -m vidbrain.main `
 
 ```powershell
 # 1. 先在 Laptop 启动 worker
-uv run python -m vidbrain.main --role worker --asr-backend vulkan --remote-asr-port 8080
+uv run python -m src.main --role worker --asr-backend vulkan --remote-asr-port 8080
 
 # 2. 再在 Desktop 启动 primary
-uv run python -m vidbrain.main --role primary --vault-dir .\my_vault --remote-asr-host LAPTOP-3J6HL311 --remote-asr-port 8080 --once
+uv run python -m src.main --role primary --vault-dir .\vidbrain_vault --remote-asr-host LAPTOP-3J6HL311 --remote-asr-port 8080 --once
 ```
 
 验证建议：
@@ -442,13 +442,13 @@ uv run python -m vidbrain.main --role primary --vault-dir .\my_vault --remote-as
 推荐命令：
 
 ```powershell
-uv run python -m vidbrain.main --role worker --asr-backend vulkan --model-size tiny --remote-asr-port 8080
+uv run python -m src.main --role worker --asr-backend vulkan --model-size tiny --remote-asr-port 8080
 ```
 
 如果这台 `Laptop` 还没配置好 `vulkan`，可以先退回 CPU 版本：
 
 ```powershell
-uv run python -m vidbrain.main --role worker --asr-backend cpu --model-size tiny --remote-asr-port 8080
+uv run python -m src.main --role worker --asr-backend cpu --model-size tiny --remote-asr-port 8080
 ```
 
 更稳妥的方式是让 `Task Scheduler` 调用 `powershell.exe`，并在参数里先切到仓库目录再启动 worker。
@@ -462,7 +462,7 @@ powershell.exe
 `Add arguments`
 
 ```text
--NoProfile -ExecutionPolicy Bypass -Command "Set-Location 'F:\ML\bailian-playground\VidBrain'; uv run python -m vidbrain.main --role worker --asr-backend vulkan --model-size tiny --remote-asr-port 8080"
+-NoProfile -ExecutionPolicy Bypass -Command "Set-Location 'F:\ML\bailian-playground\VidBrain'; uv run python -m src.main --role worker --asr-backend vulkan --model-size tiny --remote-asr-port 8080"
 ```
 
 `Start in`

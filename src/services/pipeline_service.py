@@ -178,7 +178,7 @@ def process_pipeline(  # noqa: C901
         # Step 3: 运行 Agent
         logger.info("[Pipeline] 阶段 3/4 - Agent 处理: %s", video_name)
         agent_start = time.time()
-        graph = create_agent_graph(llm_config)  # 编译结果被 @lru_cache 自动复用
+        graph = create_agent_graph(llm_config)  # 编译结果被 create_agent_graph 内部缓存复用
         initial_state: AgentState = {
             "video_id": video_id,
             "video_name": video_name,
@@ -225,6 +225,8 @@ def process_pipeline(  # noqa: C901
             quality = _compute_quality_score(
                 len(asr_data),
                 final_state["final_markdown"],
+                user_edited=(feedback_signals["edited_count"] > 0),
+                reviewed=(feedback_signals["reviewed_count"] > 0),
             )
             front_matter = (
                 f"---\n"

@@ -24,7 +24,7 @@ Optional environment variables:
 If you only want one command to remember, use:
 
 ```powershell
-uv run python -m vidbrain.main --vault-dir ./my_vault --profile auto --interval 30m
+uv run python -m src.main --vault-dir ./vidbrain_vault --profile auto --interval 30m
 ```
 
 This gives you:
@@ -39,73 +39,73 @@ This gives you:
 Run one batch and exit:
 
 ```powershell
-uv run python -m vidbrain.main --vault-dir ./my_vault --once
+uv run python -m src.main --vault-dir ./vidbrain_vault --once
 ```
 
 Run in lower-impact desktop-friendly mode:
 
 ```powershell
-uv run python -m vidbrain.main --vault-dir ./my_vault --profile active --interval 30m
+uv run python -m src.main --vault-dir ./vidbrain_vault --profile active --interval 30m
 ```
 
 Run in maximum-throughput mode:
 
 ```powershell
-uv run python -m vidbrain.main --vault-dir ./my_vault --profile idle --once
+uv run python -m src.main --vault-dir ./vidbrain_vault --profile idle --once
 ```
 
 Run in streaming mode without waiting for intervals:
 
 ```powershell
-uv run python -m vidbrain.main --vault-dir ./my_vault --profile auto --continuous
+uv run python -m src.main --vault-dir ./vidbrain_vault --profile auto --continuous
 ```
 
 Process at most 10 videos:
 
 ```powershell
-uv run python -m vidbrain.main --vault-dir ./my_vault --once --limit 10
+uv run python -m src.main --vault-dir ./vidbrain_vault --once --limit 10
 ```
 
 Use Vulkan ASR when `whisper.cpp` is available:
 
 ```powershell
-uv run python -m vidbrain.main --vault-dir ./my_vault --asr-backend vulkan --profile idle --once
+uv run python -m src.main --vault-dir ./vidbrain_vault --asr-backend vulkan --profile idle --once
 ```
 
 Classify files only:
 
 ```powershell
-uv run python -m vidbrain.main --vault-dir ./my_vault --classify-only
+uv run python -m src.main --vault-dir ./vidbrain_vault --classify-only
 ```
 
 Retry failed tasks and continue processing:
 
 ```powershell
-uv run python -m vidbrain.main --vault-dir ./my_vault --retry-failed --once
+uv run python -m src.main --vault-dir ./vidbrain_vault --retry-failed --once
 ```
 
 Run vault refinement:
 
 ```powershell
-uv run python -m vidbrain.main --vault-dir ./my_vault --refine
+uv run python -m src.main --vault-dir ./vidbrain_vault --refine
 ```
 
 Run semi-auto mode with review gates:
 
 ```powershell
-uv run python -m vidbrain.main --vault-dir ./my_vault --semi
+uv run python -m src.main --vault-dir ./vidbrain_vault --semi
 ```
 
 Review classifications only:
 
 ```powershell
-uv run python -m vidbrain.main --vault-dir ./my_vault --review-classifications
+uv run python -m src.main --vault-dir ./vidbrain_vault --review-classifications
 ```
 
 Review drafts only:
 
 ```powershell
-uv run python -m vidbrain.main --vault-dir ./my_vault --review-drafts
+uv run python -m src.main --vault-dir ./vidbrain_vault --review-drafts
 ```
 
 ## Start And Stop

@@ -268,17 +268,7 @@ def _prompt_choice(prompt: str, options: str) -> str:
 
 def review_classifications(db: DatabaseManager) -> None:
     """交互式审核 unclear 分类的视频。"""
-    unclear = []
-    with db._lock:
-        import sqlite3
-
-        with sqlite3.connect(db._db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                "SELECT id, video_name, file_path FROM video_pipeline WHERE category='unclear'"
-            ).fetchall()
-            unclear = [(r["id"], r["video_name"], r["file_path"]) for r in rows]
-
+    unclear = db.get_unclear_videos()
     if not unclear:
         logger.info("没有 unclear 视频需要审核")
         return

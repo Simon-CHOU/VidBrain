@@ -63,7 +63,7 @@ class PipelineConfig:
     """
 
     input_dir: str = ""  # 必须通过 --input-dir CLI 参数指定
-    vault_dir: str = ""
+    vault_dir: str = "./vidbrain_vault"
     db_path: str = "./pipeline.db"
     model_size: str = "tiny"  # 统一默认值：桌面友好，可按需用 --model-size 覆盖
     cpu_threads: int = field(default_factory=lambda: max(1, multiprocessing.cpu_count() - 1))

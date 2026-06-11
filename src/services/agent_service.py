@@ -30,8 +30,8 @@ logger = logging.getLogger("vidbrain.agent")
 _openai_clients: Dict[str, OpenAI] = {}
 _client_lock = threading.Lock()
 
-# Agent 图编译缓存（避免每视频重复编译）
-_cached_graph: tuple | None = None  # (cache_key, compiled_graph)
+# Agent 图编译缓存（避免每视频重复编译），支持多 LLMConfig
+_cached_graphs: Dict[str, object] = {}  # cache_key -> compiled_graph
 _graph_lock = threading.Lock()
 
 
@@ -77,13 +77,12 @@ def _call_llm(client: OpenAI, model: str, prompt: str, temperature: float) -> st
 
 
 def create_agent_graph(llm_config: LLMConfig):  # noqa: C901
-    """创建并编译 LangGraph Agent 工作流（编译结果被手动缓存）。"""
-    # 手动缓存：LLMConfig 不可 hash，用 (api_key_prefix, base_url, model) 作为键
-    global _cached_graph
-    cache_key = (llm_config.api_key[:8], llm_config.base_url, llm_config.model)
+    """创建并编译 LangGraph Agent 工作流（编译结果被 dict 缓存）。"""
+    # LLMConfig 不可 hash，用 (api_key_prefix, base_url, model) 作为缓存键
+    cache_key = f"{llm_config.api_key[:8]}::{llm_config.base_url}::{llm_config.model}"
     with _graph_lock:
-        if _cached_graph is not None and _cached_graph[0] == cache_key:
-            return _cached_graph[1]
+        if cache_key in _cached_graphs:
+            return _cached_graphs[cache_key]
 
     client = get_shared_client(llm_config.api_key, llm_config.base_url)
     model = llm_config.model
@@ -133,5 +132,5 @@ def create_agent_graph(llm_config: LLMConfig):  # noqa: C901
 
     compiled = workflow.compile()
     with _graph_lock:
-        _cached_graph = (cache_key, compiled)
+        _cached_graphs[cache_key] = compiled
     return compiled

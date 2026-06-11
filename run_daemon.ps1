@@ -77,7 +77,7 @@ while ($restarts -lt $maxRestart) {
     "[{0:yyyy-MM-dd HH:mm:ss}] INFO  Starting VidBrain (run #$($restarts+1))" -f (Get-Date) | Tee-Object -Append "$LogDir\daemon.log"
 
     $proc = Start-Process -FilePath $pythonExe -ArgumentList @(
-        "-m", "vidbrain.main",
+        "-m", "src.main",
         "--vault-dir", $VaultDir,
         "--interval", $Interval,
         "--batch-size", $BatchSize,

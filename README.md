@@ -21,7 +21,7 @@ Set these Windows environment variables before the first run:
 Use this as the default startup command:
 
 ```powershell
-uv run python -m vidbrain.main --vault-dir ./my_vault --profile auto --interval 30m
+uv run python -m src.main --vault-dir ./vidbrain_vault --profile auto --interval 30m
 ```
 
 Why this is the recommended default:
@@ -39,25 +39,25 @@ If you want to keep `Desktop` as the main VidBrain process and offload ASR to a 
 Laptop side, start the remote ASR worker:
 
 ```powershell
-uv run python -m vidbrain.main --role worker --asr-backend vulkan --model-size tiny --remote-asr-port 8080
+uv run python -m src.main --role worker --asr-backend vulkan --model-size tiny --remote-asr-port 8080
 ```
 
 If the Laptop is not ready for `vulkan` yet, use CPU first:
 
 ```powershell
-uv run python -m vidbrain.main --role worker --asr-backend cpu --model-size tiny --remote-asr-port 8080
+uv run python -m src.main --role worker --asr-backend cpu --model-size tiny --remote-asr-port 8080
 ```
 
 Desktop side, start the main VidBrain process and point it at the Laptop:
 
 ```powershell
-uv run python -m vidbrain.main --role primary --vault-dir ./my_vault --remote-asr-host LAPTOP-3J6HL311 --remote-asr-port 8080 --profile auto --interval 30m
+uv run python -m src.main --role primary --vault-dir ./vidbrain_vault --remote-asr-host LAPTOP-3J6HL311 --remote-asr-port 8080 --profile auto --interval 30m
 ```
 
 Minimal one-shot test:
 
 ```powershell
-uv run python -m vidbrain.main --role primary --vault-dir ./my_vault --remote-asr-host LAPTOP-3J6HL311 --remote-asr-port 8080 --once
+uv run python -m src.main --role primary --vault-dir ./vidbrain_vault --remote-asr-host LAPTOP-3J6HL311 --remote-asr-port 8080 --once
 ```
 
 What this gives you:
