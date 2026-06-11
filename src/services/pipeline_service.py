@@ -92,6 +92,22 @@ def _read_note_quality(vault_path: Path, note_stem: str) -> int:
     return 0
 
 
+def _clean_dead_links(markdown: str, valid_stems: set) -> str:
+    """Remove double-brackets from links pointing to non-existent notes, keeping text."""
+    import re as _re2
+    def _replace_dead(m):
+        target = m.group(1).strip()
+        if "|" in target:
+            parts = target.split("|", 1)
+            stem, alias = parts[0].strip(), parts[1].strip()
+        else:
+            stem = alias = target
+        if stem in valid_stems:
+            return m.group(0)
+        return alias
+    return _re2.sub(r"\[\[([^]#]+?)\]\]", _replace_dead, markdown)
+
+
 def process_pipeline(  # noqa: C901
     video_id: str,
     video_name: str,
@@ -237,7 +253,8 @@ def process_pipeline(  # noqa: C901
                 f"created: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
                 f"---\n\n"
             )
-            full_content = front_matter + final_state["final_markdown"]
+            cleaned_md = _clean_dead_links(final_state["final_markdown"], set(existing_notes))
+            full_content = front_matter + cleaned_md
 
             # 原子写入：先写临时文件，再 rename，防止输出半截文件
             output_stem = Path(output_file_name).stem

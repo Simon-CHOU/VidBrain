@@ -52,7 +52,6 @@ _TECH_KEYWORDS = [
     "CUDA",
     "算子",
     "推理",
-    "训练",
     "模型",
     "微服务",
     "分布式",
@@ -75,47 +74,29 @@ _TECH_KEYWORDS = [
     # 知识类
     "科普",
     "原理",
-    "深度",
     "解析",
     "拆解",
     "底层",
-    "认知",
-    "方法论",
-    "思维",
     "经济",
     "物理",
     "数学",
     "科学",
     "技术",
     "创业",
-    "复盘",
-    "演讲",
-    "讲座",
     "代码",
     "软件",
     # 课程类
     "教程",
     "课程",
-    "教学",
     "入门",
     "进阶",
     "实战",
     "训练营",
     "公开课",
     # 观点类
-    "观点",
-    "思辨",
-    "评论",
-    "分析",
-    "讨论",
-    "对话",
-    "对谈",
     "播客",
     "访谈",
     "圆桌",
-    "辩论",
-    "座谈",
-    "对讲",
     # 公司与产品
     "谷歌",
     "Google",
@@ -128,6 +109,8 @@ _TECH_KEYWORDS = [
     "Mac",
     "Windows",
 ]
+
+_WORD_BOUNDARY_KW = {"Go", "Rust", "AI", "Git", "Mac", "API"}
 
 # ── 关键词黑名单（命中任意即跳过） ──
 _SKIP_KEYWORDS = [
@@ -172,13 +155,20 @@ def classify_video(filename: str) -> Tuple[str, str]:
 
     # 2. 白名单
     for kw in _TECH_KEYWORDS:
-        if kw.lower() in name_lower:
+        kw_lower = kw.lower()
+        if kw in _WORD_BOUNDARY_KW:
+            if re.search(r"\b" + re.escape(kw_lower) + r"\b", name_lower):
+                return "tech", f"文件名含技术/知识关键词: {kw}"
+        elif kw_lower in name_lower:
             return "tech", f"文件名含技术/知识关键词: {kw}"
 
     # 3. 含 @ 后跟英文 — 可能是技术博主（排除纯中文@名）
-    at_match = re.search(r"@([a-zA-Z][a-zA-Z0-9_.]{2,})", filename)
+    at_match = re.search(
+        r"@(?:tech|dev|code|ai|lab|engineer|hack|geek|binary|programmer|开源|码农|极客|程序员|科学|数学|物理)[a-zA-Z0-9_.]*",
+        filename, re.I
+    )
     if at_match:
-        return "tech", f"文件名含技术博主标识: @{at_match.group(1)}"
+        return "tech", f"文件名含技术博主标识: @{at_match.group(0)}"
 
     # 4. 兜底
     return "unclear", "未匹配任何已知规则，暂不处理"

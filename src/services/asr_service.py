@@ -97,6 +97,24 @@ class ASREngine:
         self._cpu_threads = cpu_threads
 
     def _load_model(self, model_size: str, is_retry: bool = False) -> WhisperModel:
+        """加载 Whisper 模型（包装 _load_model_inner，捕获 C 扩展崩溃）。
+
+        将底层 C 扩展（ctranslate2 等）可能抛出的底层异常转换为
+        清晰的 RuntimeError，提示用户清除损坏的模型缓存。
+        """
+        try:
+            return self._load_model_inner(model_size, is_retry)
+        except Exception as exc:
+            logger.error(
+                "模型加载过程中发生异常（可能是 C 扩展崩溃）: %s",
+                exc,
+            )
+            raise RuntimeError(
+                f"模型加载失败（内部错误: {exc}）。"
+                f" 这可能是本地模型缓存损坏所致，请尝试清除缓存目录后重试。"
+            ) from exc
+
+    def _load_model_inner(self, model_size: str, is_retry: bool = False) -> WhisperModel:
         """加载 Whisper 模型，优先使用本地缓存。
 
         策略：

@@ -214,17 +214,16 @@ def suggest_update(
     new_preview = new_content[:600]
 
     prompt = (
-        f'Given this NEW note about "{new_note_name}" and EXISTING related notes below, '
-        "determine if each existing note should be updated.\n\n"
-        "Options:\n"
-        "- 'none': no update needed\n"
-        "- 'ref': add a reference link at the bottom\n"
-        "- 'supplement': add supplementary content\n\n"
-        f"## New Note Content (preview)\n{new_preview}\n\n"
-        f"## Existing Related Notes\n{related_summary}\n\n"
-        "Output JSON:\n"
-        '{"suggestions": [{"target_note": "<name>", "type": "ref|supplement|none", '
-        '"content": "markdown text to append"}]}'
+        f"给定新笔记「{new_note_name}」和以下已有关联笔记，判断每篇已有笔记是否需要更新。\n\n"
+        "选项说明：\n"
+        "- 'none': 无需更新\n"
+        "- 'ref': 在笔记底部添加参考链接\n"
+        "- 'supplement': 添加补充内容\n\n"
+        f"## 新笔记内容（预览）\n{new_preview}\n\n"
+        f"## 已有关联笔记\n{related_summary}\n\n"
+        "输出 JSON 格式：\n"
+        '{"suggestions": [{"target_note": "<笔记名>", "type": "ref|supplement|none", '
+        '"content": "要追加的 markdown 内容"}]}'
     )
 
     max_retries = 3

@@ -357,13 +357,18 @@ class RemoteFirstASREngine:
             self._next_health_check_after = now + self._health_interval_seconds
 
     def _open_circuit(self, reason: str) -> None:
-        """切到 open，在冷却窗口内直接回退本地 CPU。"""
+        """切到 open，在冷却窗口内直接回退本地 CPU（指数退避）。
+
+        _consecutive_failures 由 _record_remote_failure 在调用前递增，
+        此处仅计算退避时间，不重复递增。
+        """
         with self._lock:
             now = self._time_fn()
             self._state = RemoteCircuitState.OPEN
-            self._consecutive_failures = max(self._consecutive_failures, self._failure_threshold)
             self._consecutive_recovery_successes = 0
-            self._cooldown_until = now + self._cooldown_seconds
+            failures = self._consecutive_failures
+            backoff = min(self._cooldown_seconds * (2 ** (failures - 1)), 3600)
+            self._cooldown_until = now + backoff
             self._next_health_check_after = 0.0
             self._next_recovery_probe_after = self._cooldown_until
 
@@ -371,5 +376,5 @@ class RemoteFirstASREngine:
             "远端 ASR 已熔断: endpoint=%s, reason=%s, cooldown=%ss",
             self._remote_client.endpoint,
             reason,
-            self._cooldown_seconds,
+            round(backoff, 1),
         )

@@ -89,29 +89,44 @@ def create_agent_graph(llm_config: LLMConfig):  # noqa: C901
 
     def clean_and_extract_node(state: AgentState) -> Dict[str, Any]:
         """节点 1：术语纠错 + 分段 + 提炼核心知识。"""
+        raw_text = state.get("raw_text", "").strip()
+        if not raw_text:
+            logger.info("[Agent] 无 ASR 文本，跳过清洗与提炼: %s", state["video_name"])
+            return {"final_markdown": ""}
         logger.info("[Agent] 清洗与提炼: %s", state["video_name"])
         prompt = (
-            "你是一个资深的 AI Infrastructure 技术文档专家。请对以下技术视频的原始 ASR 文本进行处理：\n"
+            "你是一个资深的技术文档专家。请对以下技术视频的原始 ASR 文本进行处理：\n"
             "1. 修正错别字，尤其是专业技术术语（例如将'扣打'修正为'CUDA'，'卡夫卡'修正为'Kafka'，'单子融合'修正为'算子融合'）。\n"
             "2. 将无标点的文本根据语义进行结构化段落划分。\n"
             "3. 提炼出核心原理、架构设计或核心代码/逻辑片段。\n\n"
-            f"原始 ASR 文本：\n{state['raw_text']}"
+            f"原始 ASR 文本：\n{state['raw_text']}\n\n"
+            "[约束]\n"
+            "- 只输出笔记内容（Markdown 格式）。\n"
+            "- 不要对话，不要解释，不要问候语。\n"
+            "- 如果输入文本过短或无意义，输出空字符串。"
         )
         content = _call_llm(client, model, prompt, temperature=0.2)
+        if not content or len(content.strip()) < 20:
+            content = ""
         return {"final_markdown": content}
 
     def auto_link_node(state: AgentState) -> Dict[str, Any]:
         """节点 2：基于已有笔记生成双链。"""
+        current_md = state.get("final_markdown", "").strip()
+        if not current_md:
+            logger.info("[Agent] 无有效笔记内容，跳过织网: %s", state["video_name"])
+            return {"final_markdown": ""}
         logger.info("[Agent] 自动织网: %s", state["video_name"])
         notes = state.get("existing_notes", [])
         # 前 10 个为高质量笔记（已按 quality_score 降序排列）
         preferred = notes[:10]
-        notes_summary = ", ".join(notes) if notes else "（无已有笔记）"
+        visible_notes = notes[:100]
+        notes_summary = ", ".join(visible_notes) if visible_notes else "（无已有笔记）"
         preferred_summary = ", ".join(preferred) if preferred else ""
         prompt = (
             "你是一个高级知识库架构师。请在不破坏原有 Markdown 结构的前提下，比对给定的'已有笔记列表'。\n"
-            "如果当前技术笔记中出现了列表中已有的概念，请自动将其转换为 Obsidian 双链语法 `[[已存在的笔记]]`。\n"
-            "如果发现非常关键、且列表里没有的全新技术名词，也请用 `[[新概念]]` 进行前瞻性标记。\n\n"
+            "如果当前技术笔记中出现了列表中已有的概念，请自动将其转换为 Obsidian 双链语法（将概念名包裹在 [[ 和 ]] 之间）。\n"
+            "如果发现非常关键、且列表里没有的全新技术名词，也请用该名词本身作为双链目标（如 `[[新术语]]`），不要用占位符。\n\n"
             f"已有笔记列表：{notes_summary}\n"
         )
         if preferred_summary:

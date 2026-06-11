@@ -241,7 +241,7 @@ def set_low_priority(level: str = "below_normal") -> bool:
             logger.info("进程优先级已设置为: %s", level)
             return True
         else:
-            logger.warning("SetPriorityClass 调用失败 (level=%s)", level)
+            logger.debug("SetPriorityClass 调用失败 (level=%s) — 非 Windows 或无权限环境下属于正常现象", level)
             return False
     except Exception:
         logger.warning("无法设置进程优先级（可能非 Windows 平台），已跳过")
