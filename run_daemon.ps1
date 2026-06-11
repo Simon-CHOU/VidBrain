@@ -5,8 +5,8 @@ VidBrain 7x24 无人值守启动脚本
 
 param(
     [string]$VaultDir = "$PSScriptRoot\vidbrain_vault",
-    [string]$Interval = "5m",
-    [int]$BatchSize = 10,
+    [string]$Interval = "30m",
+    [int]$BatchSize = 5,
     [int]$Cooldown = 0,
     [string]$ModelSize = "tiny",
     [int]$MetricsInterval = 3600

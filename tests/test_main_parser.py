@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from src.cli import parse_args, parse_interval
+from src.cli import build_config, parse_args, parse_interval
 
 
 class TestParseInterval:
@@ -58,6 +58,14 @@ class TestParseArgs:
         assert args.batch_size == 5
         assert args.model_size == "tiny"
         assert args.once is False
+        assert args.role == "primary"
+        assert args.remote_asr_host == ""
+        assert args.remote_asr_port == 8080
+        assert args.remote_asr_timeout == 2.0
+        assert args.remote_asr_health_interval == 10
+        assert args.remote_asr_failure_threshold == 2
+        assert args.remote_asr_recovery_threshold == 2
+        assert args.remote_asr_cooldown == 60
 
     def test_custom_interval(self) -> None:
         """Should parse custom interval argument."""
@@ -88,3 +96,70 @@ class TestParseArgs:
         """Should set continuous flag."""
         args = parse_args(["--continuous"])
         assert args.continuous is True
+
+    def test_remote_asr_args(self) -> None:
+        """Should parse role and remote ASR options."""
+        args = parse_args(
+            [
+                "--role",
+                "worker",
+                "--remote-asr-host",
+                "LAPTOP-3J6HL311",
+                "--remote-asr-port",
+                "8090",
+                "--remote-asr-timeout",
+                "3.5",
+                "--remote-asr-health-interval",
+                "15",
+                "--remote-asr-failure-threshold",
+                "4",
+                "--remote-asr-recovery-threshold",
+                "3",
+                "--remote-asr-cooldown",
+                "120",
+            ]
+        )
+        assert args.role == "worker"
+        assert args.remote_asr_host == "LAPTOP-3J6HL311"
+        assert args.remote_asr_port == 8090
+        assert args.remote_asr_timeout == 3.5
+        assert args.remote_asr_health_interval == 15
+        assert args.remote_asr_failure_threshold == 4
+        assert args.remote_asr_recovery_threshold == 3
+        assert args.remote_asr_cooldown == 120
+
+
+class TestBuildConfig:
+    """Tests for build_config function."""
+
+    def test_maps_remote_asr_settings(self) -> None:
+        """Should map role and remote ASR CLI options into PipelineConfig."""
+        args = parse_args(
+            [
+                "--role",
+                "primary",
+                "--remote-asr-host",
+                "192.168.1.8",
+                "--remote-asr-port",
+                "8088",
+                "--remote-asr-timeout",
+                "1.5",
+                "--remote-asr-health-interval",
+                "12",
+                "--remote-asr-failure-threshold",
+                "5",
+                "--remote-asr-recovery-threshold",
+                "2",
+                "--remote-asr-cooldown",
+                "45",
+            ]
+        )
+        cfg = build_config(args)
+        assert cfg.role == "primary"
+        assert cfg.remote_asr_host == "192.168.1.8"
+        assert cfg.remote_asr_port == 8088
+        assert cfg.remote_asr_timeout_seconds == 1.5
+        assert cfg.remote_asr_health_interval_seconds == 12
+        assert cfg.remote_asr_failure_threshold == 5
+        assert cfg.remote_asr_recovery_threshold == 2
+        assert cfg.remote_asr_cooldown_seconds == 45

@@ -1,0 +1,10 @@
+- [x] CLI 提供 `primary/worker` 角色参数，并为主控提供远端 endpoint 配置项
+- [x] `PipelineConfig` 能表达远端节点地址、端口、超时、健康检查与熔断冷却配置
+- [x] `primary` 模式保持当前主流程能力，并在启用远端时优先走远端 ASR
+- [x] `worker` 模式只启动远端 ASR 服务与健康接口，不初始化数据库、watcher、vault、LLM 主流程
+- [x] 远端 worker 不可用时，任务级回退到本地 CPU ASR，不中断整条处理管线
+- [x] 远端健康检查、熔断、冷却与自动恢复探测按 spec 定义工作
+- [x] 未配置远端 endpoint 时，系统行为与当前单机模式兼容
+- [x] 首版实现不依赖局域网扫描、mDNS 或 zeroconf 自动发现
+- [x] 测试覆盖远端成功、失败回退、熔断、恢复等关键场景
+- [x] 本地 lint-and-test 通过，满足提交前 CI 约束
