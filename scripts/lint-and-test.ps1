@@ -37,12 +37,12 @@ if (-not (Test-Path -Path "pyproject.toml")) {
 
 if ($FixFormatting) {
     Invoke-Step -Name "Auto-format Python files with black" -Action {
-        Invoke-PythonModule -Arguments @("-m", "black", "--workers", "1", "src", "tests")
+        Invoke-PythonModule -Arguments @("-m", "black", "--fast", "src", "tests")
     }
-}
-
-Invoke-Step -Name "Check code formatting with black" -Action {
-    Invoke-PythonModule -Arguments @("-m", "black", "--workers", "1", "--check", "src", "tests")
+} else {
+    Invoke-Step -Name "Check code formatting with black" -Action {
+        Invoke-PythonModule -Arguments @("-m", "black", "--fast", "--check", "src", "tests")
+    }
 }
 
 Invoke-Step -Name "Lint with ruff" -Action {

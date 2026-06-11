@@ -127,6 +127,7 @@ class TestPipelineConfig:
 def test_hf_env_vars_set() -> None:
     """Verify HF environment variables are set on calling setup_environment()."""
     from src.models.config import setup_environment
+
     setup_environment()
     assert "HF_HOME" in os.environ
     assert "HF_HUB_CACHE" in os.environ
