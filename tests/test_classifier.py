@@ -73,7 +73,9 @@ class TestClassifyVideo:
 
     def test_skip_priority_over_tech(self) -> None:
         """Should prioritize skip (blacklist) over tech (whitelist)."""
-        category, _ = classify_video("抖音Python教学.mp4")  # contains both skip and tech keywords
+        category, _ = classify_video(
+            "抖音Python教学.mp4"
+        )  # contains both skip and tech keywords
         assert category == "skip"
 
     def test_case_insensitive(self) -> None:

@@ -21,6 +21,7 @@ Set these Windows environment variables before the first run:
 Use this as the default startup command:
 
 ```powershell
+uv run python -m src.main --vault-dir ./vidbrain_vault --profile auto --continuous
 uv run python -m src.main --vault-dir ./vidbrain_vault --profile auto --interval 30m
 ```
 

@@ -16,7 +16,9 @@ def embed_config(mock_env_dashscope) -> EmbeddingConfig:
 
 class TestEmbeddingEngine:
     @patch("src.services.embedding_service.OpenAI")
-    def test_embed_success(self, mock_openai_cls, embed_config: EmbeddingConfig) -> None:
+    def test_embed_success(
+        self, mock_openai_cls, embed_config: EmbeddingConfig
+    ) -> None:
         client = MagicMock()
         mock_openai_cls.return_value = client
         client.embeddings.create.return_value = MagicMock(
@@ -28,7 +30,9 @@ class TestEmbeddingEngine:
 
     @patch("src.services.embedding_service.time.sleep")
     @patch("src.services.embedding_service.OpenAI")
-    def test_embed_retries(self, mock_openai_cls, _sleep, embed_config: EmbeddingConfig) -> None:
+    def test_embed_retries(
+        self, mock_openai_cls, _sleep, embed_config: EmbeddingConfig
+    ) -> None:
         client = MagicMock()
         mock_openai_cls.return_value = client
         client.embeddings.create.side_effect = [

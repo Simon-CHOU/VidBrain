@@ -47,8 +47,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--input-dir",
-        default="",
-        help="输入目录（存放 .mp4 网络视频，必须通过此参数显式指定）",
+        default=r"I:\web-videos",
+        help=r"输入目录（存放 .mp4 网络视频，默认: I:\web-videos）",
     )
     parser.add_argument(
         "--vault-dir",
@@ -252,7 +252,9 @@ def build_config(args: argparse.Namespace) -> PipelineConfig:
         配置好的 PipelineConfig 实例。
     """
     cpu_threads = (
-        args.cpu_threads if args.cpu_threads > 0 else max(1, multiprocessing.cpu_count() - 1)
+        args.cpu_threads
+        if args.cpu_threads > 0
+        else max(1, multiprocessing.cpu_count() - 1)
     )
     interval_seconds = parse_interval(args.interval) if args.interval else 0
     auto_refine_every_hours = (

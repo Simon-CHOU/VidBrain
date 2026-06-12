@@ -26,7 +26,9 @@ logger = logging.getLogger("vidbrain.asr_engine_vulkan")
 
 # ── 默认路径 ──
 _DEFAULT_WHISPER_CLI = "whisper-cli.exe"
-_DEFAULT_MODEL_DIR = str(Path(__file__).resolve().parent.parent / ".model_cache" / "ggml")
+_DEFAULT_MODEL_DIR = str(
+    Path(__file__).resolve().parent.parent / ".model_cache" / "ggml"
+)
 
 # GGML 模型名称映射（与 faster-whisper 的 model_size 对应）
 _MODEL_NAMES: dict[str, str] = {
@@ -63,7 +65,13 @@ def _find_whisper_cli() -> str | None:
     project_root = Path(__file__).resolve().parent.parent
     candidates = [
         project_root / "tools" / "whisper-cli.exe",
-        project_root / "tools" / "whisper.cpp" / "build" / "bin" / "Release" / "whisper-cli.exe",
+        project_root
+        / "tools"
+        / "whisper.cpp"
+        / "build"
+        / "bin"
+        / "Release"
+        / "whisper-cli.exe",
         project_root / "whisper.cpp" / "build" / "bin" / "Release" / "whisper-cli.exe",
     ]
     for p in candidates:

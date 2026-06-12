@@ -85,7 +85,9 @@ class VaultCache:
             self._file_mtimes.clear()
             logger.info("[VaultCache] 缓存已失效")
 
-    def get_content_preview(self, stem: str, max_chars: int = 400, vault_path: str = "") -> str:
+    def get_content_preview(
+        self, stem: str, max_chars: int = 400, vault_path: str = ""
+    ) -> str:
         """获取笔记内容预览（去 front-matter），优先从缓存读取，缓存未命中时回退到磁盘读取。
 
         Args:
@@ -191,7 +193,9 @@ class VaultCache:
 
     def _sorted_stems(self) -> list[str]:
         """返回按 quality_score 降序排列的 stem 列表。"""
-        return sorted(self._stems.keys(), key=lambda s: self._stems.get(s, 0), reverse=True)
+        return sorted(
+            self._stems.keys(), key=lambda s: self._stems.get(s, 0), reverse=True
+        )
 
 
 # ── 全局单例 ──

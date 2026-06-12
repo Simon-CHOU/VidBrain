@@ -52,7 +52,9 @@ class TestWorkerRuntime:
 
         with (
             patch("src.main.setup_logger") as mock_setup_logger,
-            patch("src.main._build_asr_engine", return_value=object()) as mock_build_engine,
+            patch(
+                "src.main._build_asr_engine", return_value=object()
+            ) as mock_build_engine,
             patch("src.main._serve_worker") as mock_serve_worker,
             patch("src.main.acquire_singleton") as mock_singleton,
             patch("src.main.DatabaseManager") as mock_db_manager,
@@ -81,7 +83,9 @@ class TestWorkerRuntime:
         sample_audio.write_bytes(b"RIFF")
 
         asr_engine = MagicMock()
-        asr_engine.transcribe.return_value = [{"start": 0.0, "end": 1.0, "text": "test transcript"}]
+        asr_engine.transcribe.return_value = [
+            {"start": 0.0, "end": 1.0, "text": "test transcript"}
+        ]
         cfg = PipelineConfig(role="worker", model_size="tiny", asr_backend="cpu")
         handler_cls = _make_worker_handler(asr_engine, cfg, started_at=time.time() - 1)
 

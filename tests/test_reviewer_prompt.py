@@ -42,7 +42,9 @@ class TestBuildUserMessage:
             related_notes_summary="note1: preview",
             note_a_content="## Content A",
             note_a_links=["[[Python]]", "[[CUDA]]"],
-            note_a_suggestions=[{"target_note": "Old", "type": "ref", "content": "see also"}],
+            note_a_suggestions=[
+                {"target_note": "Old", "type": "ref", "content": "see also"}
+            ],
             note_b_content="## Content B",
             note_b_links=["[[Python]]"],
             note_b_suggestions=[],

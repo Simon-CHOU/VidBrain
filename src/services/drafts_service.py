@@ -25,7 +25,9 @@ logger = logging.getLogger("vidbrain.drafts")
 _DRAFTS_DIR = "_drafts"
 
 
-def write_draft(vault_path: str, file_name: str, content: str, source_video: str) -> Path:
+def write_draft(
+    vault_path: str, file_name: str, content: str, source_video: str
+) -> Path:
     """将笔记写入 _drafts/ 子目录。
 
     Args:

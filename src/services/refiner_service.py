@@ -213,7 +213,9 @@ def _extract_topics(
     """
     # embedding 聚类路径
     if embedding_store is not None and embedding_engine is not None:
-        cached_count = sum(1 for n in notes if embedding_store.get_vector(n["name"]) is not None)
+        cached_count = sum(
+            1 for n in notes if embedding_store.get_vector(n["name"]) is not None
+        )
         coverage = cached_count / len(notes) if notes else 0
         if coverage >= 0.5:
             return _extract_topics_with_embedding(
@@ -223,7 +225,9 @@ def _extract_topics(
                 embedding_store,
                 embedding_engine,
             )
-        logger.info("嵌入缓存覆盖率 %.0f%% (< 50%%)，回退到 LLM 标题分组", coverage * 100)
+        logger.info(
+            "嵌入缓存覆盖率 %.0f%% (< 50%%)，回退到 LLM 标题分组", coverage * 100
+        )
 
     # 原始 LLM 路径
     return _extract_topics_llm(client, model, notes)
@@ -291,7 +295,13 @@ def _extract_topics_with_embedding(
     if len(notes) < 3:
         # 笔记太少，不聚类，全部归为一个主题
         topic_name = _name_topic_from_notes(client, model, notes)
-        return [{"topic": topic_name, "notes": [n["name"] for n in notes], "description": ""}]
+        return [
+            {
+                "topic": topic_name,
+                "notes": [n["name"] for n in notes],
+                "description": "",
+            }
+        ]
 
     # 获取所有笔记的嵌入向量（缺失的批量计算）
     vectors: list[list[float]] = []
@@ -346,7 +356,9 @@ def _extract_topics_with_embedding(
     return topics
 
 
-def _name_topic_from_notes(client: OpenAI, model: str, notes: list[dict[str, Any]]) -> str:
+def _name_topic_from_notes(
+    client: OpenAI, model: str, notes: list[dict[str, Any]]
+) -> str:
     """用 LLM 为一组笔记生成主题名。"""
     names = [n["name"] for n in notes]
     names_str = ", ".join(names[:10])
@@ -460,7 +472,8 @@ def refine_vault(
         client = OpenAI(api_key=llm_config.api_key, base_url=llm_config.base_url)
         # all_titles 按质量评分降序排列（高质量笔记优先被引用）
         all_titles = [
-            n["name"] for n in sorted(notes, key=lambda n: n.get("quality", 0), reverse=True)
+            n["name"]
+            for n in sorted(notes, key=lambda n: n.get("quality", 0), reverse=True)
         ]
         # orphan_out 按质量评分升序排列（低质量笔记优先获得链接补充）
         orphan_out.sort(key=lambda n: n.get("quality", 0))
@@ -470,7 +483,9 @@ def refine_vault(
         total_applied = 0
         for i in range(0, len(orphan_out), batch_size):
             batch = orphan_out[i : i + batch_size]  # noqa: E203
-            logger.info("  处理第 %d-%d 篇...", i + 1, min(i + batch_size, len(orphan_out)))
+            logger.info(
+                "  处理第 %d-%d 篇...", i + 1, min(i + batch_size, len(orphan_out))
+            )
             suggestions = _call_llm_batch(client, llm_config.model, batch, all_titles)
             if suggestions:
                 applied = apply_suggestions(vault_path, suggestions, notes)

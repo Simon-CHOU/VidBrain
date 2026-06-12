@@ -18,7 +18,9 @@ class TestLLMConfig:
         with pytest.raises(OSError, match="DEEPSEEK_API_KEY"):
             LLMConfig()
 
-    def test_raises_when_base_url_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_raises_when_base_url_missing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Should raise OSError when DEEPSEEK_BASE_URL is not set."""
         monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
         monkeypatch.delenv("DEEPSEEK_BASE_URL", raising=False)

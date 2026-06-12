@@ -82,4 +82,7 @@ class TestApplyUpdate:
 
     def test_nonexistent_target(self, temp_dir: Any) -> None:
         """Should return False when target note doesn't exist."""
-        assert apply_update(str(temp_dir), {"target_note": "ghost", "content": "x"}) is False
+        assert (
+            apply_update(str(temp_dir), {"target_note": "ghost", "content": "x"})
+            is False
+        )

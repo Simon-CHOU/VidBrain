@@ -119,7 +119,9 @@ class TestVideoFileHandler:
         assert handler._check_queue_backpressure() is True
 
     @patch("src.utils.watcher.process_pipeline")
-    def test_on_closed_submits_tech_video(self, mock_pipeline, watcher_setup: dict) -> None:
+    def test_on_closed_submits_tech_video(
+        self, mock_pipeline, watcher_setup: dict
+    ) -> None:
         handler = VideoFileHandler(
             watcher_setup["db"],
             watcher_setup["asr_engine"],

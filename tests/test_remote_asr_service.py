@@ -11,7 +11,11 @@ from unittest.mock import MagicMock, patch
 
 from src.main import _build_asr_engine
 from src.models.config import PipelineConfig
-from src.services.remote_asr_service import RemoteASRClient, RemoteASRError, RemoteFirstASREngine
+from src.services.remote_asr_service import (
+    RemoteASRClient,
+    RemoteASRError,
+    RemoteFirstASREngine,
+)
 
 
 class _RemoteASRHandler(BaseHTTPRequestHandler):
@@ -19,7 +23,12 @@ class _RemoteASRHandler(BaseHTTPRequestHandler):
         if self.path != "/healthz":
             self.send_error(HTTPStatus.NOT_FOUND)
             return
-        payload = {"status": "ok", "role": "worker", "backend": "vulkan", "model_size": "tiny"}
+        payload = {
+            "status": "ok",
+            "role": "worker",
+            "backend": "vulkan",
+            "model_size": "tiny",
+        }
         body = json.dumps(payload).encode("utf-8")
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "application/json")
@@ -74,7 +83,9 @@ class TestRemoteASRClient:
 
             assert health["status"] == "ok"
             assert health["backend"] == "vulkan"
-            assert segments == [{"start": 0.0, "end": 1.25, "text": "remote transcript"}]
+            assert segments == [
+                {"start": 0.0, "end": 1.25, "text": "remote transcript"}
+            ]
         finally:
             server.shutdown()
             server.server_close()
@@ -97,12 +108,15 @@ class TestRemoteASRClient:
                 timeout_seconds=1.0,
             )
             with patch(
-                "src.services.remote_asr_service._extract_audio", return_value=str(extracted_wav)
+                "src.services.remote_asr_service._extract_audio",
+                return_value=str(extracted_wav),
             ) as mock_extract:
                 segments = client.transcribe(str(sample_video))
 
             mock_extract.assert_called_once_with(str(sample_video))
-            assert segments == [{"start": 0.0, "end": 1.25, "text": "remote transcript"}]
+            assert segments == [
+                {"start": 0.0, "end": 1.25, "text": "remote transcript"}
+            ]
         finally:
             server.shutdown()
             server.server_close()
@@ -122,7 +136,9 @@ class TestRemoteFirstASREngine:
         ]
 
         local_cpu_engine = MagicMock()
-        local_cpu_engine.transcribe.return_value = [{"start": 0.0, "end": 0.5, "text": "local"}]
+        local_cpu_engine.transcribe.return_value = [
+            {"start": 0.0, "end": 0.5, "text": "local"}
+        ]
 
         engine = RemoteFirstASREngine(
             remote_client=remote_client,
@@ -154,7 +170,9 @@ class TestRemoteFirstASREngine:
         ]
 
         local_cpu_engine = MagicMock()
-        local_cpu_engine.transcribe.return_value = [{"start": 0.0, "end": 0.5, "text": "local"}]
+        local_cpu_engine.transcribe.return_value = [
+            {"start": 0.0, "end": 0.5, "text": "local"}
+        ]
 
         engine = RemoteFirstASREngine(
             remote_client=remote_client,
@@ -212,7 +230,9 @@ class TestRemoteFirstASREngine:
         ]
 
         local_cpu_engine = MagicMock()
-        local_cpu_engine.transcribe.return_value = [{"start": 0.0, "end": 0.5, "text": "local"}]
+        local_cpu_engine.transcribe.return_value = [
+            {"start": 0.0, "end": 0.5, "text": "local"}
+        ]
 
         engine = RemoteFirstASREngine(
             remote_client=remote_client,
@@ -277,7 +297,9 @@ class TestPrimaryRemoteRouting:
 
         mock_asr_cls.prepare_model.assert_called_once_with("tiny", 3)
         mock_asr_cls.assert_called_once_with(model_size="tiny", cpu_threads=3)
-        mock_client_cls.assert_called_once_with(host="192.168.1.9", port=8090, timeout_seconds=1.5)
+        mock_client_cls.assert_called_once_with(
+            host="192.168.1.9", port=8090, timeout_seconds=1.5
+        )
         mock_remote_engine_cls.assert_called_once_with(
             remote_client=mock_client_cls.return_value,
             local_cpu_engine=mock_asr_cls.return_value,

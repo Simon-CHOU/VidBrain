@@ -49,7 +49,9 @@ class TestAcquireSingleton:
         with (
             patch.object(singleton_mod, "_is_process_alive", return_value=True),
             patch.object(singleton_mod, "_is_vidbrain_process", return_value=True),
-            patch.object(singleton_mod.sys, "exit", side_effect=SystemExit(1)) as mock_exit,
+            patch.object(
+                singleton_mod.sys, "exit", side_effect=SystemExit(1)
+            ) as mock_exit,
         ):
             with pytest.raises(SystemExit):
                 singleton_mod.acquire_singleton()

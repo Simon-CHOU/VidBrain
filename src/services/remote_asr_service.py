@@ -76,7 +76,9 @@ class RemoteASRClient:
                 upload_path = _extract_audio(file_path)
                 cleanup_upload = True
             except Exception as exc:
-                raise RemoteASRError(f"远端 ASR 音频提取失败: {file_path}, error={exc}") from exc
+                raise RemoteASRError(
+                    f"远端 ASR 音频提取失败: {file_path}, error={exc}"
+                ) from exc
 
         try:
             body, content_type = self._build_multipart_body(upload_path)
@@ -112,9 +114,9 @@ class RemoteASRClient:
         content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         parts = [
             f"--{boundary}\r\n".encode("utf-8"),
-            (f'Content-Disposition: form-data; name="file"; filename="{path.name}"\r\n').encode(
-                "utf-8"
-            ),
+            (
+                f'Content-Disposition: form-data; name="file"; filename="{path.name}"\r\n'
+            ).encode("utf-8"),
             f"Content-Type: {content_type}\r\n\r\n".encode("utf-8"),
             file_bytes,
             b"\r\n",
@@ -235,8 +237,7 @@ class RemoteFirstASREngine:
                 logger.warning("远端 ASR 失败，回退本地 CPU: %s", exc)
 
         logger.info("使用本地 CPU ASR 回退: %s", file_path)
-        fallback_segments: list[dict[str, Any]] = self._local_cpu_engine.transcribe(file_path)
-        return fallback_segments
+        return self._local_cpu_engine.transcribe(file_path)
 
     def _run_health_checks_if_needed(self) -> bool:
         """在任务前按状态机执行健康检查或恢复探测。
@@ -279,13 +280,17 @@ class RemoteFirstASREngine:
         """关闭态健康检查成功后清理失败计数。"""
         with self._lock:
             self._consecutive_failures = 0
-            self._next_health_check_after = self._time_fn() + self._health_interval_seconds
+            self._next_health_check_after = (
+                self._time_fn() + self._health_interval_seconds
+            )
 
     def _record_remote_success(self) -> None:
         """远端调用成功时清理失败计数。"""
         with self._lock:
             self._consecutive_failures = 0
-            self._next_health_check_after = self._time_fn() + self._health_interval_seconds
+            self._next_health_check_after = (
+                self._time_fn() + self._health_interval_seconds
+            )
 
     def _record_remote_failure(self, exc: Exception) -> None:
         """远端调用或健康检查失败后累计失败并按阈值熔断。"""
@@ -295,7 +300,9 @@ class RemoteFirstASREngine:
             should_open = failures >= self._failure_threshold
 
         if should_open:
-            self._open_circuit(reason=f"failure-threshold ({failures}/{self._failure_threshold})")
+            self._open_circuit(
+                reason=f"failure-threshold ({failures}/{self._failure_threshold})"
+            )
         else:
             logger.warning(
                 "远端 ASR 失败计数增加: endpoint=%s, failures=%d/%d, error=%s",
@@ -358,18 +365,15 @@ class RemoteFirstASREngine:
             self._next_health_check_after = now + self._health_interval_seconds
 
     def _open_circuit(self, reason: str) -> None:
-        """切到 open，在冷却窗口内直接回退本地 CPU（指数退避）。
-
-        _consecutive_failures 由 _record_remote_failure 在调用前递增，
-        此处仅计算退避时间，不重复递增。
-        """
+        """切到 open，在冷却窗口内直接回退本地 CPU。"""
         with self._lock:
             now = self._time_fn()
             self._state = RemoteCircuitState.OPEN
+            self._consecutive_failures = max(
+                self._consecutive_failures, self._failure_threshold
+            )
             self._consecutive_recovery_successes = 0
-            failures = self._consecutive_failures
-            backoff = min(self._cooldown_seconds * (2 ** (failures - 1)), 3600)
-            self._cooldown_until = now + backoff
+            self._cooldown_until = now + self._cooldown_seconds
             self._next_health_check_after = 0.0
             self._next_recovery_probe_after = self._cooldown_until
 
@@ -377,5 +381,5 @@ class RemoteFirstASREngine:
             "远端 ASR 已熔断: endpoint=%s, reason=%s, cooldown=%ss",
             self._remote_client.endpoint,
             reason,
-            round(backoff, 1),
+            self._cooldown_seconds,
         )

@@ -59,7 +59,9 @@ def _check_related_embedding(
         )
 
     logger.info(
-        "[Updater Embedding] 检索到 %d 篇关联笔记: %s", len(results), [r["stem"] for r in results]
+        "[Updater Embedding] 检索到 %d 篇关联笔记: %s",
+        len(results),
+        [r["stem"] for r in results],
     )
     return results
 
@@ -97,7 +99,9 @@ def _extract_key_terms(content: str) -> list[str]:
     return terms
 
 
-def _match_notes(terms: list[str], existing_notes: list[str], top_n: int = 3) -> list[dict]:
+def _match_notes(
+    terms: list[str], existing_notes: list[str], top_n: int = 3
+) -> list[dict]:
     """将术语与已有笔记 stem 进行匹配，返回 top N 匹配结果。"""
     results: list[dict] = []
     for note_stem in existing_notes:
@@ -147,7 +151,11 @@ def check_related_notes(
         关联笔记列表，每项包含 name, stem, match_terms, content_preview
     """
     # embedding 路径
-    if embedding_enabled and embedding_store is not None and embedding_engine is not None:
+    if (
+        embedding_enabled
+        and embedding_store is not None
+        and embedding_engine is not None
+    ):
         return _check_related_embedding(
             vault_path,
             new_content,
@@ -169,7 +177,9 @@ def check_related_notes(
     # 从缓存获取内容预览（避免磁盘读取，缓存未命中时回退到磁盘）
     vault_cache = get_vault_cache()
     for r in related:
-        r["content_preview"] = vault_cache.get_content_preview(r["stem"], vault_path=vault_path)
+        r["content_preview"] = vault_cache.get_content_preview(
+            r["stem"], vault_path=vault_path
+        )
 
     logger.info(
         "检测到 %d 篇关联笔记 (top %d): %s",
@@ -247,10 +257,14 @@ def suggest_update(
             filtered = [s for s in suggestions if s.get("type", "none") != "none"]
             filtered = filtered[:3]
 
-            logger.info("LLM 更新建议: %d 条 (原始 %d 条)", len(filtered), len(suggestions))
+            logger.info(
+                "LLM 更新建议: %d 条 (原始 %d 条)", len(filtered), len(suggestions)
+            )
             return filtered
         except Exception as e:
-            logger.warning("LLM 更新建议失败 (尝试 %d/%d): %s", attempt, max_retries, str(e))
+            logger.warning(
+                "LLM 更新建议失败 (尝试 %d/%d): %s", attempt, max_retries, str(e)
+            )
             if attempt < max_retries:
                 time.sleep(2 ** (attempt - 1))
     return []
@@ -281,7 +295,9 @@ def apply_update(vault_path: str, suggestion: dict) -> bool:
 
     try:
         existing = note_file.read_text(encoding="utf-8", errors="replace")
-        update_block = f"\n\n---\n*[自动更新: 关联笔记 [[{new_note_name}]]]*\n{append_content}\n"
+        update_block = (
+            f"\n\n---\n*[自动更新: 关联笔记 [[{new_note_name}]]]*\n{append_content}\n"
+        )
         note_file.write_text(existing + update_block, encoding="utf-8")
         logger.info("已更新笔记: %s <- 关联自 [[%s]]", target_name, new_note_name)
         return True
@@ -310,14 +326,18 @@ def check_and_update(
         被更新的笔记数量
     """
     # Step 1: 检测关联笔记
-    related = check_related_notes(vault_path, new_note_name, new_content, existing_notes)
+    related = check_related_notes(
+        vault_path, new_note_name, new_content, existing_notes
+    )
     if not related:
         logger.info("[Updater] 未检测到关联笔记，跳过更新")
         return 0
 
     # Step 2: LLM 生成更新建议
     client = OpenAI(api_key=llm_config.api_key, base_url=llm_config.base_url)
-    suggestions = suggest_update(new_note_name, new_content, related, client, llm_config.model)
+    suggestions = suggest_update(
+        new_note_name, new_content, related, client, llm_config.model
+    )
     if not suggestions:
         logger.info("[Updater] LLM 未生成更新建议")
         return 0

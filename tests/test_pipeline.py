@@ -33,13 +33,19 @@ class TestComputeQualityScore:
 
     def test_user_edited_bonus(self) -> None:
         """Should add bonus for user-edited content."""
-        score_without = _compute_quality_score(10, "## Title\n\nContent.", user_edited=False)
-        score_with = _compute_quality_score(10, "## Title\n\nContent.", user_edited=True)
+        score_without = _compute_quality_score(
+            10, "## Title\n\nContent.", user_edited=False
+        )
+        score_with = _compute_quality_score(
+            10, "## Title\n\nContent.", user_edited=True
+        )
         assert score_with > score_without
 
     def test_reviewed_bonus(self) -> None:
         """Should add bonus for reviewed content."""
-        score_without = _compute_quality_score(10, "## Title\n\nContent.", reviewed=False)
+        score_without = _compute_quality_score(
+            10, "## Title\n\nContent.", reviewed=False
+        )
         score_with = _compute_quality_score(10, "## Title\n\nContent.", reviewed=True)
         assert score_with > score_without
 

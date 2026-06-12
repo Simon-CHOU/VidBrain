@@ -114,7 +114,9 @@ class ASREngine:
                 f" 这可能是本地模型缓存损坏所致，请尝试清除缓存目录后重试。"
             ) from exc
 
-    def _load_model_inner(self, model_size: str, is_retry: bool = False) -> WhisperModel:
+    def _load_model_inner(
+        self, model_size: str, is_retry: bool = False
+    ) -> WhisperModel:
         """加载 Whisper 模型，优先使用本地缓存。
 
         策略：
@@ -212,7 +214,9 @@ class ASREngine:
             return ASREngine._model
 
     @classmethod
-    def prepare_model(cls, model_size: str = "large-v3", cpu_threads: int = 4) -> WhisperModel:
+    def prepare_model(
+        cls, model_size: str = "large-v3", cpu_threads: int = 4
+    ) -> WhisperModel:
         """预下载模型（在启动时调用以在首条任务之前完成下载）。
 
         优先使用本地缓存；如果本地已缓存则零网络请求完成加载。

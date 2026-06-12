@@ -41,8 +41,12 @@ class TestKMeans:
         # All labels must be valid (in range 0..k-1)
         assert all(0 <= lbl < 2 for lbl in labels)
         # Each group should be internally consistent (same label within group)
-        assert labels[0] == labels[1] == labels[2], f"First group not uniform: {labels[:3]}"
-        assert labels[3] == labels[4] == labels[5], f"Second group not uniform: {labels[3:]}"
+        assert (
+            labels[0] == labels[1] == labels[2]
+        ), f"First group not uniform: {labels[:3]}"
+        assert (
+            labels[3] == labels[4] == labels[5]
+        ), f"Second group not uniform: {labels[3:]}"
 
     def test_labels_are_valid_indices(self) -> None:
         """All labels should be in range 0..k-1."""

@@ -49,6 +49,8 @@ def classify_all_pending(db: DatabaseManager, input_dir: str) -> None:
         db: 数据库管理器实例。
         input_dir: 输入目录路径。
     """
+    if not input_dir:
+        return
     input_path = Path(input_dir)
     if not input_path.exists():
         return
@@ -170,7 +172,9 @@ def process_batch(
             if cfg.video_cooldown > 0:
                 from src.utils.throttle import cooldown_sleep
 
-                cooldown_sleep(cfg.video_cooldown, f"视频 {task['video_name']} 处理完成")
+                cooldown_sleep(
+                    cfg.video_cooldown, f"视频 {task['video_name']} 处理完成"
+                )
     else:
         workers = min(cfg.parallel_workers, total)
         logger.info("本批处理 %d 个 tech 视频 (并行, workers=%d)", total, workers)
@@ -226,7 +230,9 @@ def retry_failed_tasks(db: DatabaseManager) -> int:
     return len(retryable)
 
 
-def run_refine(cfg: PipelineConfig, embedding_store=None, embedding_engine=None) -> None:
+def run_refine(
+    cfg: PipelineConfig, embedding_store=None, embedding_engine=None
+) -> None:
     """执行知识库精炼模式。
 
     Args:
@@ -321,7 +327,9 @@ def review_queue(db: DatabaseManager, batch_size: int) -> list[str]:
         print(f"\n[{idx}/{len(tasks)}] {task['video_name']}")
         if reason:
             print(f"     分类理由: {reason}")
-        choice = _prompt_choice("  [A]pprove  [S]kip  [R]eject  [*]全部通过  [Q]uit", "A/S/R/*/Q")
+        choice = _prompt_choice(
+            "  [A]pprove  [S]kip  [R]eject  [*]全部通过  [Q]uit", "A/S/R/*/Q"
+        )
         if choice == "A":
             approved.append(task["id"])
             logger.info("  -> 已批准")
@@ -358,13 +366,17 @@ def review_drafts_vault(cfg: PipelineConfig, db: DatabaseManager) -> None:
 
     logger.info("=" * 50)
     logger.info("草稿审核：共 %d 篇草稿", len(drafts))
-    logger.info("选项: [P]ublish 发布  [D]iscard 删除  [S]kip 保留  [*]全部发布  [Q]uit")
+    logger.info(
+        "选项: [P]ublish 发布  [D]iscard 删除  [S]kip 保留  [*]全部发布  [Q]uit"
+    )
     logger.info("=" * 50)
 
     for idx, draft_name in enumerate(drafts, 1):
         stem = Path(draft_name).stem
         print(f"\n[{idx}/{len(drafts)}] {stem}")
-        choice = _prompt_choice("  [P]ublish  [D]iscard  [S]kip  [*]全部发布  [Q]uit", "P/D/S/*/Q")
+        choice = _prompt_choice(
+            "  [P]ublish  [D]iscard  [S]kip  [*]全部发布  [Q]uit", "P/D/S/*/Q"
+        )
         if choice == "P":
             result = publish_draft(cfg.vault_dir, draft_name)
             if result:
@@ -446,7 +458,9 @@ def _should_refine_streaming(
     return False
 
 
-def _should_refine_batches(cfg: PipelineConfig, batch_count: int, last_refine_time: float) -> bool:
+def _should_refine_batches(
+    cfg: PipelineConfig, batch_count: int, last_refine_time: float
+) -> bool:
     """定时模式：检查是否应触发自动精炼。
 
     Args:
@@ -591,7 +605,9 @@ class _WorkerHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
         logger.info("Worker HTTP - " + format, *args)
 
-    def _send_json(self, payload: dict[str, Any], status: HTTPStatus = HTTPStatus.OK) -> None:
+    def _send_json(
+        self, payload: dict[str, Any], status: HTTPStatus = HTTPStatus.OK
+    ) -> None:
         body = json.dumps(payload).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -613,7 +629,9 @@ class _WorkerHandler(BaseHTTPRequestHandler):
         cfg = type(self).cfg
         effective_backend = cfg.asr_backend
         if cfg.asr_backend == "vulkan":
-            effective_backend = "vulkan" if type(self).asr_engine.vulkan_available else "cpu"
+            effective_backend = (
+                "vulkan" if type(self).asr_engine.vulkan_available else "cpu"
+            )
 
         self._send_json(
             {
@@ -738,6 +756,15 @@ def run_primary(args, cfg: PipelineConfig) -> None:  # noqa: C901
     """primary 角色运行完整主流程。"""
     setup_logger()
     logger.info("VidBrain 启动")
+
+    # 提前校验输入目录（持续/定时模式必须指定）
+    is_continuous_mode = not (cfg.interval_seconds == 0 or cfg.once)
+    if is_continuous_mode and not cfg.input_dir:
+        logger.error(
+            "持续/定时模式需要指定 --input-dir（输入目录）。"
+            "请使用 --input-dir <目录> 指定包含 .mp4 视频的目录。"
+        )
+        sys.exit(1)
 
     acquire_singleton()
 
@@ -864,14 +891,6 @@ def run_primary(args, cfg: PipelineConfig) -> None:  # noqa: C901
         logger.info("单次模式完成")
         return
 
-    # 持续模式需要有效的 input_dir
-    if not cfg.input_dir:
-        logger.error(
-            "持续/定时模式需要指定 --input-dir（输入目录）。"
-            "请使用 --input-dir <目录> 指定包含 .mp4 视频的目录。"
-        )
-        sys.exit(1)
-
     executor = ThreadPoolExecutor(max_workers=max(1, cfg.parallel_workers))
     Path(cfg.input_dir).mkdir(parents=True, exist_ok=True)
     observer = start_watcher(cfg.input_dir, db, asr_engine, llm_config, cfg, executor)
@@ -887,7 +906,9 @@ def run_primary(args, cfg: PipelineConfig) -> None:  # noqa: C901
         nonlocal _shutdown_requested
         if not _shutdown_requested:
             _shutdown_requested = True
-            logger.info("收到关闭信号 (signal=%d)，将在当前视频完成后优雅退出...", signum)
+            logger.info(
+                "收到关闭信号 (signal=%d)，将在当前视频完成后优雅退出...", signum
+            )
 
     signal.signal(signal.SIGINT, request_shutdown)
     signal.signal(signal.SIGTERM, request_shutdown)
@@ -903,7 +924,9 @@ def run_primary(args, cfg: PipelineConfig) -> None:  # noqa: C901
         metrics.dump_json(f"{args.metrics_export_dir}/metrics_final.json")
         if args.audit_export:
             audit.dump_json(f"{args.metrics_export_dir}/audit_final.json")
-        audit.system_event("shutdown", {"uptime_s": round(time.time() - metrics._start_time, 1)})
+        audit.system_event(
+            "shutdown", {"uptime_s": round(time.time() - metrics._start_time, 1)}
+        )
         logger.info("VidBrain 已优雅停止")
 
     if cfg.continuous:
@@ -951,7 +974,9 @@ def run_primary(args, cfg: PipelineConfig) -> None:  # noqa: C901
                 now = time.time()
                 if now - last_metrics_flush >= metrics_interval:
                     metrics.flush_to_db()
-                    metrics.dump_json(f"{args.metrics_export_dir}/metrics_snapshot.json")
+                    metrics.dump_json(
+                        f"{args.metrics_export_dir}/metrics_snapshot.json"
+                    )
                     metrics.log_summary()
                     last_metrics_flush = now
 
@@ -1007,7 +1032,9 @@ def run_primary(args, cfg: PipelineConfig) -> None:  # noqa: C901
                 now = time.time()
                 if now - last_metrics_flush >= metrics_interval:
                     metrics.flush_to_db()
-                    metrics.dump_json(f"{args.metrics_export_dir}/metrics_snapshot.json")
+                    metrics.dump_json(
+                        f"{args.metrics_export_dir}/metrics_snapshot.json"
+                    )
                     metrics.log_summary()
                     last_metrics_flush = now
 

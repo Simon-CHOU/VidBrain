@@ -90,7 +90,12 @@ class AuditLogger:
         if db is not None:
             try:
                 db.insert_audit_log(  # type: ignore[attr-defined]
-                    event_type, component, status, video_id, video_name, entry["details"]
+                    event_type,
+                    component,
+                    status,
+                    video_id,
+                    video_name,
+                    entry["details"],
                 )
             except Exception as e:
                 logger.warning("审计日志写入 DB 失败: %s", str(e))
@@ -111,7 +116,9 @@ class AuditLogger:
         d.update({"from_status": from_status, "to_status": to_status})
         if reason:
             d["reason"] = reason
-        status = "failure" if to_status in ("FAILED", "PERMANENTLY_FAILED") else "success"
+        status = (
+            "failure" if to_status in ("FAILED", "PERMANENTLY_FAILED") else "success"
+        )
         self.log(
             "task_status_change",
             "pipeline",
@@ -195,7 +202,14 @@ class AuditLogger:
         """记录错误事件。"""
         d = details or {}
         d["error_message"] = error_message
-        self.log("error", component, d, status="failure", video_id=video_id, video_name=video_name)
+        self.log(
+            "error",
+            component,
+            d,
+            status="failure",
+            video_id=video_id,
+            video_name=video_name,
+        )
 
     # ── 导出审计日志 ──
 

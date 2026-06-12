@@ -26,7 +26,9 @@ class TestAuditLogger:
         log_dir = tmp_path / "logs"
         audit.setup(str(log_dir))
         audit.log("test_event", "component", {"foo": "bar"})
-        lines = (log_dir / "audit.jsonl").read_text(encoding="utf-8").strip().splitlines()
+        lines = (
+            (log_dir / "audit.jsonl").read_text(encoding="utf-8").strip().splitlines()
+        )
         assert len(lines) == 1
         entry = json.loads(lines[0])
         assert entry["event_type"] == "test_event"

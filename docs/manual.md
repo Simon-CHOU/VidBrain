@@ -165,7 +165,7 @@ Notes:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--input-dir` | `""` | Read-only input folder that contains `.mp4` videos (must be specified). |
+| `--input-dir` | `I:\web-videos` | Read-only input folder that contains `.mp4` videos. |
 | `--vault-dir` | `./vidbrain_vault` | Obsidian vault output directory. |
 | `--db-path` | `./pipeline.db` | SQLite state database path. |
 

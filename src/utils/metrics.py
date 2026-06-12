@@ -96,7 +96,14 @@ class MetricsCollector:
 
             def _stats(durations: list[float]) -> dict:
                 if not durations:
-                    return {"count": 0, "avg": 0, "p50": 0, "p95": 0, "p99": 0, "max": 0}
+                    return {
+                        "count": 0,
+                        "avg": 0,
+                        "p50": 0,
+                        "p95": 0,
+                        "p99": 0,
+                        "max": 0,
+                    }
                 s = sorted(durations)
                 n = len(s)
                 return {
@@ -159,7 +166,9 @@ class MetricsCollector:
         ]
         for k, v in snap["durations"].items():
             if v["count"] > 0:
-                lines.append(f"  {k}: avg={v['avg']}s, p95={v['p95']}s, max={v['max']}s")
+                lines.append(
+                    f"  {k}: avg={v['avg']}s, p95={v['p95']}s, max={v['max']}s"
+                )
         logger.info("\n".join(lines))
 
 

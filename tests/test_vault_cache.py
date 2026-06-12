@@ -43,8 +43,12 @@ class TestVaultCache:
     def test_get_existing_notes_sorted(self, tmp_path: Path) -> None:
         vault = tmp_path / "vault"
         vault.mkdir()
-        (vault / "low.md").write_text("---\nquality_score: 1\n---\n[[A]]", encoding="utf-8")
-        (vault / "high.md").write_text("---\nquality_score: 9\n---\n[[B]]", encoding="utf-8")
+        (vault / "low.md").write_text(
+            "---\nquality_score: 1\n---\n[[A]]", encoding="utf-8"
+        )
+        (vault / "high.md").write_text(
+            "---\nquality_score: 9\n---\n[[B]]", encoding="utf-8"
+        )
         cache = VaultCache()
         stems = cache.get_existing_notes(str(vault))
         assert stems[0] == "high"

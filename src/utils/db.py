@@ -43,7 +43,10 @@ class DatabaseManager:
                 """)
                 # 兼容旧表：仅在列不存在时才 ALTER TABLE
                 existing_cols = {
-                    r[1] for r in conn.execute("PRAGMA table_info(video_pipeline)").fetchall()
+                    r[1]
+                    for r in conn.execute(
+                        "PRAGMA table_info(video_pipeline)"
+                    ).fetchall()
                 }
                 for col, col_type in [
                     ("category", "TEXT"),
@@ -52,7 +55,9 @@ class DatabaseManager:
                     ("last_error", "TEXT"),
                 ]:
                     if col not in existing_cols:
-                        conn.execute(f"ALTER TABLE video_pipeline ADD COLUMN {col} {col_type}")
+                        conn.execute(
+                            f"ALTER TABLE video_pipeline ADD COLUMN {col} {col_type}"
+                        )
 
                 # ── Metrics 快照表 ──
                 conn.execute("""
@@ -122,7 +127,9 @@ class DatabaseManager:
                 )
                 conn.commit()
 
-    def bulk_create_and_classify(self, items: list[tuple[str, str, str, str, str]]) -> None:
+    def bulk_create_and_classify(
+        self, items: list[tuple[str, str, str, str, str]]
+    ) -> None:
         """批量插入并分类视频。
 
         items: [(video_id, video_name, file_path, category, classify_reason), ...]
@@ -415,7 +422,9 @@ class DatabaseManager:
         """获取管线统计摘要（用于快速查看）。"""
         with self._lock:
             with sqlite3.connect(self._db_path) as conn:
-                total = conn.execute("SELECT COUNT(*) FROM video_pipeline").fetchone()[0]
+                total = conn.execute("SELECT COUNT(*) FROM video_pipeline").fetchone()[
+                    0
+                ]
                 by_status = conn.execute(
                     "SELECT status, COUNT(*) FROM video_pipeline GROUP BY status"
                 ).fetchall()

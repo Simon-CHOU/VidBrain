@@ -82,7 +82,9 @@ class TestProcessPipeline:
 
     @patch("src.services.pipeline_service.create_agent_graph")
     @patch("src.services.pipeline_service.check_related_notes", return_value=[])
-    def test_semi_mode_writes_draft(self, mock_related, mock_graph, pipeline_ctx: dict) -> None:
+    def test_semi_mode_writes_draft(
+        self, mock_related, mock_graph, pipeline_ctx: dict
+    ) -> None:
         pipeline_ctx["cfg"].semi = True
         asr_engine = MagicMock()
         asr_engine.transcribe.return_value = [{"start": 0.0, "end": 1.0, "text": "x"}]

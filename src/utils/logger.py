@@ -12,7 +12,9 @@ import os
 import re
 from logging.handlers import RotatingFileHandler
 
-_SENSITIVE_PATTERN = re.compile(r"(?i)(api_key|api_secret|access_token|secret_key)\s*[=:]\s*\S+")
+_SENSITIVE_PATTERN = re.compile(
+    r"(?i)(api_key|api_secret|access_token|secret_key)\s*[=:]\s*\S+"
+)
 
 
 def _mask_sensitive(msg: str) -> str:
@@ -43,7 +45,8 @@ class SensitiveDataFilter(logging.Filter):
             record.msg = _mask_sensitive(record.msg)
         if record.args:
             sanitized = tuple(
-                _mask_sensitive(str(a)) if isinstance(a, str) else a for a in record.args
+                _mask_sensitive(str(a)) if isinstance(a, str) else a
+                for a in record.args
             )
             record.args = sanitized
         return True

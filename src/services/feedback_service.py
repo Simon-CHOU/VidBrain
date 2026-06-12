@@ -221,12 +221,15 @@ def get_feedback_context(feedback_signals: dict) -> str:
     edited_count = feedback_signals.get("edited_count", 0)
     if edited_count > 0:
         parts.append(
-            f"注意：有 {edited_count} 篇笔记曾被用户编辑，" "请优先保证术语准确性和链接相关性"
+            f"注意：有 {edited_count} 篇笔记曾被用户编辑，"
+            "请优先保证术语准确性和链接相关性"
         )
 
     reviewed_count = feedback_signals.get("reviewed_count", 0)
     if reviewed_count > 0:
-        parts.append(f"有 {reviewed_count} 篇笔记已被用户审核通过，" "请参考其风格和链接选择")
+        parts.append(
+            f"有 {reviewed_count} 篇笔记已被用户审核通过，" "请参考其风格和链接选择"
+        )
 
     if not parts:
         return ""

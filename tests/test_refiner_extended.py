@@ -42,7 +42,9 @@ class TestApplySuggestions:
                 "path": str(note),
             }
         ]
-        applied = apply_suggestions(str(tmp_path), [{"note": "a", "links": ["b"]}], notes)
+        applied = apply_suggestions(
+            str(tmp_path), [{"note": "a", "links": ["b"]}], notes
+        )
         assert applied == 0
 
 
@@ -52,7 +54,9 @@ class TestCallLlmBatch:
         client.chat.completions.create.return_value = MagicMock(
             choices=[
                 MagicMock(
-                    message=MagicMock(content='{"suggestions": [{"note": "a", "links": ["b"]}]}')
+                    message=MagicMock(
+                        content='{"suggestions": [{"note": "a", "links": ["b"]}]}'
+                    )
                 )
             ]
         )
@@ -64,7 +68,9 @@ class TestCallLlmBatch:
         client = MagicMock()
         client.chat.completions.create.side_effect = RuntimeError("fail")
         with patch("src.services.refiner_service.time.sleep"):
-            result = _call_llm_batch(client, "model", [{"name": "a", "content": "x"}], ["a"])
+            result = _call_llm_batch(
+                client, "model", [{"name": "a", "content": "x"}], ["a"]
+            )
         assert result == []
 
 
@@ -99,7 +105,14 @@ class TestRefineVault:
     @patch("src.services.refiner_service._call_llm_batch", return_value=[])
     @patch("src.services.refiner_service.OpenAI")
     def test_refine_vault_with_notes(
-        self, mock_openai, _batch, _apply, _topics, _moc, tmp_path: Path, mock_env_deepseek
+        self,
+        mock_openai,
+        _batch,
+        _apply,
+        _topics,
+        _moc,
+        tmp_path: Path,
+        mock_env_deepseek,
     ) -> None:
         vault = tmp_path / "vault"
         vault.mkdir()

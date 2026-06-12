@@ -122,7 +122,9 @@ class PerformanceProfile:
 
         self.apply(self._current)
         logger.info(
-            "性能 Profile: %s — %s", self._current.value, _PROFILE_PARAMS[self._current]["label"]
+            "性能 Profile: %s — %s",
+            self._current.value,
+            _PROFILE_PARAMS[self._current]["label"],
         )
 
     @property
@@ -206,7 +208,9 @@ class PerformanceProfile:
         old = self._current
         self._current = new_profile
         self.apply(new_profile)
-        logger.info("性能 Profile 切换: %s → %s (%s)", old.value, new_profile.value, reason)
+        logger.info(
+            "性能 Profile 切换: %s → %s (%s)", old.value, new_profile.value, reason
+        )
 
     def is_idle_active(self) -> bool:
         """当前是否处于 idle（满负荷）状态。"""
@@ -241,7 +245,10 @@ def set_low_priority(level: str = "below_normal") -> bool:
             logger.info("进程优先级已设置为: %s", level)
             return True
         else:
-            logger.debug("SetPriorityClass 调用失败 (level=%s) — 非 Windows 或无权限环境下属于正常现象", level)
+            logger.debug(
+                "SetPriorityClass 调用失败 (level=%s) — 非 Windows 或无权限环境下属于正常现象",
+                level,
+            )
             return False
     except Exception:
         logger.warning("无法设置进程优先级（可能非 Windows 平台），已跳过")

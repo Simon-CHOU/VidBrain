@@ -78,7 +78,9 @@ class VideoFileHandler(FileSystemEventHandler):
         m.set_gauge("queue_size", qsize)
         if qsize >= _MAX_QUEUE_SIZE:
             logger.warning(
-                "[Watcher] 任务队列积压 %d 个 (上限 %d)，暂停接收新任务", qsize, _MAX_QUEUE_SIZE
+                "[Watcher] 任务队列积压 %d 个 (上限 %d)，暂停接收新任务",
+                qsize,
+                _MAX_QUEUE_SIZE,
             )
             get_audit().queue_backpressure(qsize, _MAX_QUEUE_SIZE)
             return True
@@ -138,7 +140,9 @@ def start_watcher(
     executor: ThreadPoolExecutor,
 ) -> BaseObserver:
     """启动 watchdog Observer，递归监听目录。"""
-    event_handler = VideoFileHandler(db, asr_engine, llm_config, cfg, executor, input_dir)
+    event_handler = VideoFileHandler(
+        db, asr_engine, llm_config, cfg, executor, input_dir
+    )
     observer = Observer()
     observer.schedule(event_handler, path=input_dir, recursive=True)
     observer.start()

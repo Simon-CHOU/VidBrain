@@ -43,7 +43,9 @@ class TestCallLlm:
 class TestCreateAgentGraph:
     @patch("src.services.agent_service._call_llm")
     @patch("src.services.agent_service.OpenAI")
-    def test_full_graph_invoke(self, mock_openai, mock_llm, llm_config: LLMConfig) -> None:
+    def test_full_graph_invoke(
+        self, mock_openai, mock_llm, llm_config: LLMConfig
+    ) -> None:
         mock_llm.side_effect = [
             "## Intro\n\nCleaned markdown with [[Python]]",
             "## Intro\n\nLinked [[Python]] [[CUDA]]",
@@ -99,7 +101,9 @@ class TestCreateAgentGraph:
             "video_name": "test.mp4",
             "raw_text": "text",
             "existing_notes": ["A"],
-            "related_notes": [{"name": "A", "match_terms": ["t"], "content_preview": "p"}],
+            "related_notes": [
+                {"name": "A", "match_terms": ["t"], "content_preview": "p"}
+            ],
             "final_markdown": "",
             "feedback_context": "user prefer concise notes",
         }

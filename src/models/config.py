@@ -48,9 +48,14 @@ class LLMConfig:
         key = os.environ.get("DEEPSEEK_API_KEY", "")
         url = os.environ.get("DEEPSEEK_BASE_URL", "")
         if not key:
-            raise OSError("环境变量 DEEPSEEK_API_KEY 未设置。" "请通过 Windows 系统环境变量设置。")
+            raise OSError(
+                "环境变量 DEEPSEEK_API_KEY 未设置。" "请通过 Windows 系统环境变量设置。"
+            )
         if not url:
-            raise OSError("环境变量 DEEPSEEK_BASE_URL 未设置。" "请通过 Windows 系统环境变量设置。")
+            raise OSError(
+                "环境变量 DEEPSEEK_BASE_URL 未设置。"
+                "请通过 Windows 系统环境变量设置。"
+            )
         self.api_key = key
         self.base_url = url
 
@@ -62,11 +67,13 @@ class PipelineConfig:
     重要约束：程序永远不得修改 input_dir 下的任何文件（增删改）。
     """
 
-    input_dir: str = ""  # 必须通过 --input-dir CLI 参数指定
+    input_dir: str = r"I:\web-videos"  # 默认输入目录
     vault_dir: str = "./vidbrain_vault"
     db_path: str = "./pipeline.db"
     model_size: str = "tiny"  # 统一默认值：桌面友好，可按需用 --model-size 覆盖
-    cpu_threads: int = field(default_factory=lambda: max(1, multiprocessing.cpu_count() - 1))
+    cpu_threads: int = field(
+        default_factory=lambda: max(1, multiprocessing.cpu_count() - 1)
+    )
     once: bool = False
     limit: int = 0
     batch_size: int = 10
@@ -116,6 +123,9 @@ class EmbeddingConfig:
             "https://dashscope.aliyuncs.com/compatible-mode/v1",
         )
         if not key:
-            raise OSError("环境变量 DASHSCOPE_API_KEY 未设置。" "请通过 Windows 系统环境变量设置。")
+            raise OSError(
+                "环境变量 DASHSCOPE_API_KEY 未设置。"
+                "请通过 Windows 系统环境变量设置。"
+            )
         self.api_key = key
         self.base_url = url

@@ -157,7 +157,9 @@ class EmbeddingStore:
 
     # ── similarity search ─────────────────────────────────────────
 
-    def find_similar(self, query_vec: list[float], top_k: int = 5) -> list[tuple[str, float]]:
+    def find_similar(
+        self, query_vec: list[float], top_k: int = 5
+    ) -> list[tuple[str, float]]:
         """Return the *top_k* stems most similar to *query_vec* by
         cosine similarity (numpy-accelerated batch computation)."""
         if not self._vectors:
@@ -219,7 +221,9 @@ def _kmeans(vectors: list[list[float]], k: int, max_iter: int = 100) -> list[int
     for _iteration in range(max_iter):
         # ── L2 归一化后用点积近似余弦相似度 ──
         data_norm = data / (np.linalg.norm(data, axis=1, keepdims=True) + 1e-10)
-        centroids_norm = centroids / (np.linalg.norm(centroids, axis=1, keepdims=True) + 1e-10)
+        centroids_norm = centroids / (
+            np.linalg.norm(centroids, axis=1, keepdims=True) + 1e-10
+        )
 
         # 余弦相似度矩阵 (N x K)
         sim = np.dot(data_norm, centroids_norm.T)

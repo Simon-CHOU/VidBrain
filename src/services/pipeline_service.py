@@ -93,6 +93,7 @@ def _read_note_quality(vault_path: Path, note_stem: str) -> int:
 def _clean_dead_links(markdown: str, valid_stems: set) -> str:
     """Remove double-brackets from links pointing to non-existent notes, keeping text."""
     import re as _re2
+
     def _replace_dead(m):
         target = m.group(1).strip()
         if "|" in target:
@@ -103,6 +104,7 @@ def _clean_dead_links(markdown: str, valid_stems: set) -> str:
         if stem in valid_stems:
             return m.group(0)
         return alias
+
     return _re2.sub(r"\[\[([^]#]+?)\]\]", _replace_dead, markdown)
 
 
@@ -136,7 +138,9 @@ def process_pipeline(  # noqa: C901
         asr_elapsed = time.time() - asr_start
         m.record_duration("asr_duration", asr_elapsed)
         raw_text = "\n".join(item["text"] for item in asr_data)
-        db.update_status(video_id, "ASR_DONE", raw_asr=json.dumps(asr_data, ensure_ascii=False))
+        db.update_status(
+            video_id, "ASR_DONE", raw_asr=json.dumps(asr_data, ensure_ascii=False)
+        )
         audit.task_status_change(
             video_id,
             video_name,
@@ -145,7 +149,10 @@ def process_pipeline(  # noqa: C901
             details={"segments": len(asr_data), "duration_s": round(asr_elapsed, 1)},
         )
         logger.info(
-            "[Pipeline] ASR 完成: %s, %d 段文本 (%.1fs)", video_name, len(asr_data), asr_elapsed
+            "[Pipeline] ASR 完成: %s, %d 段文本 (%.1fs)",
+            video_name,
+            len(asr_data),
+            asr_elapsed,
         )
 
         # Step 2: 扫描本地知识库建立动态 Context
@@ -192,7 +199,9 @@ def process_pipeline(  # noqa: C901
         # Step 3: 运行 Agent
         logger.info("[Pipeline] 阶段 3/4 - Agent 处理: %s", video_name)
         agent_start = time.time()
-        graph = create_agent_graph(llm_config)  # 编译结果被 create_agent_graph 内部缓存复用
+        graph = create_agent_graph(
+            llm_config
+        )  # 编译结果被 create_agent_graph 内部缓存复用
         initial_state: AgentState = {
             "video_id": video_id,
             "video_name": video_name,
@@ -229,10 +238,19 @@ def process_pipeline(  # noqa: C901
 
         if cfg.semi:
             # 半自动模式：写入 _drafts/ 目录，等待人工审核
-            write_draft(cfg.vault_dir, output_file_name, final_state["final_markdown"], video_name)
+            write_draft(
+                cfg.vault_dir,
+                output_file_name,
+                final_state["final_markdown"],
+                video_name,
+            )
             db.update_status(video_id, "DRAFT_PENDING")
-            audit.task_status_change(video_id, video_name, "AGENT_PROCESSING", "DRAFT_PENDING")
-            logger.info("[Pipeline] 草稿已生成 (待审核): %s/%s", "_drafts", output_file_name)
+            audit.task_status_change(
+                video_id, video_name, "AGENT_PROCESSING", "DRAFT_PENDING"
+            )
+            logger.info(
+                "[Pipeline] 草稿已生成 (待审核): %s/%s", "_drafts", output_file_name
+            )
         else:
             # 全自动模式：直接写入 Vault 根目录
             output_path = vault_path / output_file_name
@@ -251,7 +269,9 @@ def process_pipeline(  # noqa: C901
                 f"created: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
                 f"---\n\n"
             )
-            cleaned_md = _clean_dead_links(final_state["final_markdown"], set(existing_notes))
+            cleaned_md = _clean_dead_links(
+                final_state["final_markdown"], set(existing_notes)
+            )
             full_content = front_matter + cleaned_md
 
             # 原子写入：先写临时文件，再 rename，防止输出半截文件
@@ -288,7 +308,9 @@ def process_pipeline(  # noqa: C901
                     "duration_s": round(pipeline_elapsed, 1),
                 },
             )
-            audit.file_write(str(output_path), len(full_content.encode("utf-8")), video_name)
+            audit.file_write(
+                str(output_path), len(full_content.encode("utf-8")), video_name
+            )
             logger.info(
                 "[Pipeline] 完成! %s -> %s (总计 %.1fs, quality=%d)",
                 video_name,
@@ -309,7 +331,9 @@ def process_pipeline(  # noqa: C901
                     embed_store_for_check.set_vector(
                         output_stem,
                         vec,
-                        datetime.fromtimestamp(note_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                        datetime.fromtimestamp(note_mtime).strftime(
+                            "%Y-%m-%d %H:%M:%S"
+                        ),
                     )
                     embed_store_for_check.save()
                     logger.info("[Pipeline] 已缓存 embedding: %s", output_stem)
@@ -326,7 +350,9 @@ def process_pipeline(  # noqa: C901
                     llm_config,
                 )
                 if update_count > 0:
-                    logger.info("[Pipeline] 增量更新完成: 更新了 %d 篇关联笔记", update_count)
+                    logger.info(
+                        "[Pipeline] 增量更新完成: 更新了 %d 篇关联笔记", update_count
+                    )
 
     except Exception as e:
         error_msg = str(e)
@@ -350,7 +376,11 @@ def process_pipeline(  # noqa: C901
             db.update_status(video_id, "PERMANENTLY_FAILED", error_msg=error_msg)
             m.incr("total_permanently_failed")
             audit.task_status_change(
-                video_id, video_name, "AGENT_PROCESSING", "PERMANENTLY_FAILED", reason=error_msg
+                video_id,
+                video_name,
+                "AGENT_PROCESSING",
+                "PERMANENTLY_FAILED",
+                reason=error_msg,
             )
         else:
             logger.error(

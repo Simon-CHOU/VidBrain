@@ -165,7 +165,8 @@ def classify_video(filename: str) -> Tuple[str, str]:
     # 3. 含 @ 后跟英文 — 可能是技术博主（排除纯中文@名）
     at_match = re.search(
         r"@(?:tech|dev|code|ai|lab|engineer|hack|geek|binary|programmer|开源|码农|极客|程序员|科学|数学|物理)[a-zA-Z0-9_.]*",
-        filename, re.I
+        filename,
+        re.I,
     )
     if at_match:
         return "tech", f"文件名含技术博主标识: @{at_match.group(0)}"

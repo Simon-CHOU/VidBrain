@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.services.refiner_service import analyze_links, parse_links, read_note, scan_vault
+from src.services.refiner_service import (
+    analyze_links,
+    parse_links,
+    read_note,
+    scan_vault,
+)
 
 
 class TestParseLinks:
@@ -63,8 +68,18 @@ class TestAnalyzeLinks:
     def test_two_linked_notes(self) -> None:
         """Two notes referencing each other should have no orphans."""
         notes: list[dict[str, Any]] = [
-            {"name": "Note1", "outgoing_links": ["Note2"], "content": "", "path": "/n1.md"},
-            {"name": "Note2", "outgoing_links": ["Note1"], "content": "", "path": "/n2.md"},
+            {
+                "name": "Note1",
+                "outgoing_links": ["Note2"],
+                "content": "",
+                "path": "/n1.md",
+            },
+            {
+                "name": "Note2",
+                "outgoing_links": ["Note1"],
+                "content": "",
+                "path": "/n2.md",
+            },
         ]
         result = analyze_links(notes)
         assert result["orphan_no_outgoing"] == []
@@ -73,7 +88,12 @@ class TestAnalyzeLinks:
     def test_one_way_link(self) -> None:
         """Note with incoming link but no outgoing is not orphan_no_incoming."""
         notes: list[dict[str, Any]] = [
-            {"name": "Note1", "outgoing_links": ["Note2"], "content": "", "path": "/n1.md"},
+            {
+                "name": "Note1",
+                "outgoing_links": ["Note2"],
+                "content": "",
+                "path": "/n1.md",
+            },
             {"name": "Note2", "outgoing_links": [], "content": "", "path": "/n2.md"},
         ]
         result = analyze_links(notes)
@@ -83,7 +103,12 @@ class TestAnalyzeLinks:
     def test_outgoing_counts(self) -> None:
         """Should correctly count outgoing links."""
         notes: list[dict[str, Any]] = [
-            {"name": "Note1", "outgoing_links": ["A", "B", "C"], "content": "", "path": "/n1.md"},
+            {
+                "name": "Note1",
+                "outgoing_links": ["A", "B", "C"],
+                "content": "",
+                "path": "/n1.md",
+            },
         ]
         result = analyze_links(notes)
         assert result["outgoing_counts"]["Note1"] == 3
@@ -91,8 +116,18 @@ class TestAnalyzeLinks:
     def test_incoming_counts(self) -> None:
         """Should correctly count incoming links."""
         notes: list[dict[str, Any]] = [
-            {"name": "Note1", "outgoing_links": ["Target"], "content": "", "path": "/n1.md"},
-            {"name": "Note2", "outgoing_links": ["Target"], "content": "", "path": "/n2.md"},
+            {
+                "name": "Note1",
+                "outgoing_links": ["Target"],
+                "content": "",
+                "path": "/n1.md",
+            },
+            {
+                "name": "Note2",
+                "outgoing_links": ["Target"],
+                "content": "",
+                "path": "/n2.md",
+            },
             {"name": "Target", "outgoing_links": [], "content": "", "path": "/t.md"},
         ]
         result = analyze_links(notes)

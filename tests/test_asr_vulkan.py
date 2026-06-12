@@ -53,7 +53,10 @@ class TestVulkanHelpers:
 
 
 class TestASREngineVulkan:
-    @patch("src.services.asr_vulkan_service._find_ggml_model", return_value="/m/ggml-tiny.bin")
+    @patch(
+        "src.services.asr_vulkan_service._find_ggml_model",
+        return_value="/m/ggml-tiny.bin",
+    )
     @patch("src.services.asr_vulkan_service._find_whisper_cli", return_value="/cli")
     def test_vulkan_available_true(self, _cli, _model) -> None:
         engine = ASREngineVulkan(model_size="tiny", cpu_threads=2)
@@ -62,13 +65,19 @@ class TestASREngineVulkan:
 
     def test_vulkan_unavailable_without_cli(self) -> None:
         with (
-            patch("src.services.asr_vulkan_service._find_whisper_cli", return_value=None),
-            patch("src.services.asr_vulkan_service._find_ggml_model", return_value=None),
+            patch(
+                "src.services.asr_vulkan_service._find_whisper_cli", return_value=None
+            ),
+            patch(
+                "src.services.asr_vulkan_service._find_ggml_model", return_value=None
+            ),
         ):
             engine = ASREngineVulkan(model_size="tiny")
             assert engine.vulkan_available is False
 
-    @patch("src.services.asr_vulkan_service._find_ggml_model", return_value="/m/model.bin")
+    @patch(
+        "src.services.asr_vulkan_service._find_ggml_model", return_value="/m/model.bin"
+    )
     @patch("src.services.asr_vulkan_service._find_whisper_cli", return_value="/cli")
     def test_transcribe_cpu_fallback(self, _cli, _model) -> None:
         engine = ASREngineVulkan(model_size="tiny")
@@ -80,14 +89,22 @@ class TestASREngineVulkan:
         assert result[0]["text"] == "hi"
 
     @patch("src.services.asr_vulkan_service._extract_audio", return_value="/tmp/a.wav")
-    @patch("src.services.asr_vulkan_service._find_ggml_model", return_value="/m/model.bin")
+    @patch(
+        "src.services.asr_vulkan_service._find_ggml_model", return_value="/m/model.bin"
+    )
     @patch("src.services.asr_vulkan_service._find_whisper_cli", return_value="/cli")
     def test_transcribe_vulkan_json(self, _cli, _model, _audio, tmp_path: Path) -> None:
         engine = ASREngineVulkan(model_size="tiny")
         engine._vulkan_available = True
         json_out = tmp_path / "a.json"
         json_out.write_text(
-            json.dumps({"transcription": [{"timestamps": {"from": 0, "to": 1}, "text": "hello"}]}),
+            json.dumps(
+                {
+                    "transcription": [
+                        {"timestamps": {"from": 0, "to": 1}, "text": "hello"}
+                    ]
+                }
+            ),
             encoding="utf-8",
         )
         with patch("subprocess.run", return_value=MagicMock(returncode=0)):
