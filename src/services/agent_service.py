@@ -72,8 +72,7 @@ def _call_llm(client: OpenAI, model: str, prompt: str, temperature: float) -> st
             if attempt < max_retries:
                 sleep_time = 2 ** (attempt - 1)
                 time.sleep(sleep_time)
-            else:
-                raise
+    raise RuntimeError(f"LLM call failed after {max_retries} attempts")
 
 
 def create_agent_graph(llm_config: LLMConfig):  # noqa: C901

@@ -53,8 +53,8 @@ def get_user_idle_seconds() -> int | None:
         空闲秒数，或 None 表示不可用。
     """
     try:
-        user32 = ctypes.windll.user32
-        kernel32 = ctypes.windll.kernel32
+        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
     except (AttributeError, OSError):
         return None
 
@@ -235,8 +235,8 @@ def set_low_priority(level: str = "below_normal") -> bool:
         return True
 
     try:
-        handle = ctypes.windll.kernel32.GetCurrentProcess()
-        result = ctypes.windll.kernel32.SetPriorityClass(handle, requested_class)
+        handle = ctypes.windll.kernel32.GetCurrentProcess()  # type: ignore[attr-defined]
+        result = ctypes.windll.kernel32.SetPriorityClass(handle, requested_class)  # type: ignore[attr-defined]
         if result:
             logger.info("进程优先级已设置为: %s", level)
             return True
@@ -257,8 +257,8 @@ def apply_idle_priority() -> bool:
     process_ok = set_low_priority("idle")
 
     try:
-        handle = ctypes.windll.kernel32.GetCurrentThread()
-        result = ctypes.windll.kernel32.SetThreadPriority(handle, THREAD_PRIORITY_LOWEST)
+        handle = ctypes.windll.kernel32.GetCurrentThread()  # type: ignore[attr-defined]
+        result = ctypes.windll.kernel32.SetThreadPriority(handle, THREAD_PRIORITY_LOWEST)  # type: ignore[attr-defined]
         if result:
             logger.info("线程优先级已设置为 THREAD_PRIORITY_LOWEST")
         else:

@@ -8,33 +8,13 @@ Vault 笔记列表缓存。
 from __future__ import annotations
 
 import logging
-import re
 import threading
 import time
 from pathlib import Path
 
+from src.utils.frontmatter import read_quality_score, strip_frontmatter
+
 logger = logging.getLogger("vidbrain.vault_cache")
-
-
-def _read_note_quality_from_content(content: str) -> int:
-    """从笔记 front-matter 读取质量评分。"""
-    try:
-        match = re.search(r"^quality_score:\s*(\d+)", content, re.MULTILINE)
-        if match:
-            return int(match.group(1))
-    except Exception:
-        pass
-    return 0
-
-
-def _strip_front_matter(content: str, max_len: int = 500) -> str:
-    """去除 YAML front-matter，返回正文前 max_len 字符。"""
-    if content.startswith("---"):
-        parts = content.split("---", 2)
-        body = parts[2] if len(parts) >= 3 else content
-    else:
-        body = content
-    return body.strip()[:max_len]
 
 
 def _read_preview_from_disk(vault_path: str, stem: str) -> str:
@@ -43,7 +23,7 @@ def _read_preview_from_disk(vault_path: str, stem: str) -> str:
     try:
         if file_path.is_file():
             content = file_path.read_text(encoding="utf-8", errors="replace")
-            return _strip_front_matter(content)
+            return strip_frontmatter(content)
     except OSError:
         pass
     return ""
@@ -139,9 +119,9 @@ class VaultCache:
         with self._lock:
             if vault_path != self._vault_path:
                 return  # vault 已变更，下次全量扫描
-            score = _read_note_quality_from_content(content) if content else 0
+            score = read_quality_score(content) if content else 0
             self._stems[stem] = score
-            self._content_previews[stem] = _strip_front_matter(content)
+            self._content_previews[stem] = strip_frontmatter(content)
             file_path = str(Path(vault_path) / f"{stem}.md")
             try:
                 self._file_mtimes[file_path] = Path(file_path).stat().st_mtime
@@ -163,8 +143,8 @@ class VaultCache:
             stem = p.stem
             try:
                 content = p.read_text(encoding="utf-8", errors="replace")
-                score = _read_note_quality_from_content(content)
-                preview = _strip_front_matter(content)
+                score = read_quality_score(content)
+                preview = strip_frontmatter(content)
             except Exception:
                 score = 0
                 preview = ""

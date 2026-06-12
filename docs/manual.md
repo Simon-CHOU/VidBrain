@@ -165,7 +165,7 @@ Notes:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--input-dir` | `I:\web-videos` | Read-only input folder that contains `.mp4` videos. |
+| `--input-dir` | `""` | Read-only input folder that contains `.mp4` videos (must be specified). |
 | `--vault-dir` | `./vidbrain_vault` | Obsidian vault output directory. |
 | `--db-path` | `./pipeline.db` | SQLite state database path. |
 
@@ -180,6 +180,19 @@ Notes:
 | `--parallel` | `0` | Number of videos to process concurrently. |
 | `--video-cooldown` | `0` | Cooldown seconds after each video or batch. |
 | `--asr-backend` | `cpu` | `cpu` or `vulkan`. |
+
+### Remote ASR
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--role` | `primary` | `primary` or `worker`. |
+| `--remote-asr-host` | `""` | Remote ASR worker hostname or IP (empty disables remote worker). |
+| `--remote-asr-port` | `8080` | Remote ASR worker port. |
+| `--remote-asr-timeout` | `2.0` | Remote ASR connection and health check timeout in seconds. |
+| `--remote-asr-health-interval` | `10` | Remote ASR health probe interval in seconds. |
+| `--remote-asr-failure-threshold` | `2` | Consecutive failures before marking the remote worker offline. |
+| `--remote-asr-recovery-threshold` | `2` | Consecutive recoveries before marking the remote worker online. |
+| `--remote-asr-cooldown` | `60` | Remote ASR circuit breaker cooldown in seconds. |
 
 ### Scheduling
 

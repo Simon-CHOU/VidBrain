@@ -89,7 +89,7 @@ class AuditLogger:
         db = self._db
         if db is not None:
             try:
-                db.insert_audit_log(
+                db.insert_audit_log(  # type: ignore[attr-defined]
                     event_type, component, status, video_id, video_name, entry["details"]
                 )
             except Exception as e:

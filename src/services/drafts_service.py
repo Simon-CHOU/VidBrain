@@ -18,6 +18,8 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
+from src.utils.frontmatter import parse_frontmatter
+
 logger = logging.getLogger("vidbrain.drafts")
 
 _DRAFTS_DIR = "_drafts"
@@ -48,11 +50,9 @@ def write_draft(vault_path: str, file_name: str, content: str, source_video: str
         f"---\n\n"
     )
     # 如果 content 已含 front-matter（以 --- 开头），替换之
-    if content.strip().startswith("---"):
-        # 找到第二个 --- 的位置
-        parts = content.split("---", 2)
-        if len(parts) >= 3:
-            content = parts[2].strip() + "\n"
+    _, body = parse_frontmatter(content)
+    if body and body.strip():
+        content = body.strip() + "\n"
 
     file_path = drafts_dir / file_name
     file_path.write_text(draft_front_matter + content, encoding="utf-8")
@@ -95,16 +95,21 @@ def publish_draft(vault_path: str, draft_name: str) -> Path | None:
 
     # 更新 front-matter：status: draft → status: auto-generated + reviewed fields
     reviewed_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    if content.startswith("---"):
-        parts = content.split("---", 2)
-        if len(parts) >= 3:
-            fm = parts[1]
-            # 替换 status
-            fm = fm.replace("status: draft", "status: auto-generated")
-            # 添加 reviewed 字段
-            if "reviewed:" not in fm:
-                fm += f"\nreviewed: true\nreviewed_at: {reviewed_at}"
-            content = f"---{fm}---{parts[2]}"
+    metadata, body = parse_frontmatter(content)
+    if metadata:
+        metadata["status"] = "auto-generated"
+        if "reviewed" not in metadata:
+            metadata["reviewed"] = True
+            metadata["reviewed_at"] = reviewed_at
+        # 重建 front-matter 字符串
+        fm_lines = ["---"]
+        for k, v in metadata.items():
+            if isinstance(v, bool):
+                fm_lines.append(f"{k}: {str(v).lower()}")
+            else:
+                fm_lines.append(f"{k}: {v}")
+        fm_lines.append("---")
+        content = "\n".join(fm_lines) + "\n" + body
 
     dst = vp / draft_name
     # 如果正式目录已有同名文件，跳过移动（保留草稿）

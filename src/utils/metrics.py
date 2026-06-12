@@ -132,7 +132,7 @@ class MetricsCollector:
             return
         snap = self.snapshot()
         try:
-            db.insert_metrics_snapshot(snap)
+            db.insert_metrics_snapshot(snap)  # type: ignore[attr-defined]
         except Exception as e:
             logger.warning("指标落盘失败: %s", str(e))
 

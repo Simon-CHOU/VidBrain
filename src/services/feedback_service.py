@@ -12,10 +12,11 @@
 from __future__ import annotations
 
 import logging
-import re
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
+
+from src.utils.frontmatter import parse_frontmatter as _parse_frontmatter
 
 logger = logging.getLogger("vidbrain.feedback")
 
@@ -41,35 +42,8 @@ def parse_front_matter(content: str) -> dict:
     Returns:
         解析出的 front-matter 字典。如果 front-matter 不存在或无效，返回空 dict。
     """
-    if not content.startswith("---"):
-        return {}
-
-    second_delim = content.find("---", 3)
-    if second_delim == -1:
-        return {}
-
-    fm_block = content[3:second_delim]
-
-    # 解析简单的 YAML key: value 行
-    result: dict = {}
-    for line in fm_block.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        # 匹配 key: value 格式
-        m = re.match(r"^([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*(.*)", line)
-        if m:
-            key = m.group(1)
-            value = m.group(2).strip()
-            # 转换布尔值
-            if value.lower() == "true":
-                result[key] = True
-            elif value.lower() == "false":
-                result[key] = False
-            else:
-                result[key] = value
-
-    return result
+    metadata, _body = _parse_frontmatter(content)
+    return metadata
 
 
 def _parse_created_time(fm: dict) -> datetime | None:

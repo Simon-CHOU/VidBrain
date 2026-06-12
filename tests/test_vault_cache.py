@@ -5,11 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from src.utils.frontmatter import read_quality_score, strip_frontmatter
 from src.utils.vault_cache import (
     VaultCache,
-    _read_note_quality_from_content,
     _read_preview_from_disk,
-    _strip_front_matter,
     get_vault_cache,
 )
 
@@ -17,13 +16,13 @@ from src.utils.vault_cache import (
 class TestVaultCacheHelpers:
     def test_read_quality_from_front_matter(self) -> None:
         content = "---\nquality_score: 8\n---\nbody"
-        assert _read_note_quality_from_content(content) == 8
+        assert read_quality_score(content) == 8
 
     def test_read_quality_default(self) -> None:
-        assert _read_note_quality_from_content("no front matter") == 0
+        assert read_quality_score("no front matter") == 0
 
     def test_strip_front_matter(self) -> None:
-        body = _strip_front_matter("---\ntype: note\n---\n# Title\n\nHello")
+        body = strip_frontmatter("---\ntype: note\n---\n# Title\n\nHello")
         assert body.startswith("# Title")
 
     def test_read_preview_from_disk(self, tmp_path: Path) -> None:

@@ -32,6 +32,7 @@ from src.services.feedback_service import (
 from src.services.updater_service import check_and_update, check_related_notes
 from src.utils.audit import get_audit
 from src.utils.db import DatabaseManager
+from src.utils.frontmatter import read_quality_score
 from src.utils.metrics import get_metrics
 from src.utils.vault_cache import get_vault_cache
 
@@ -84,12 +85,9 @@ def _read_note_quality(vault_path: Path, note_stem: str) -> int:
         return 0
     try:
         content = note_path.read_text(encoding="utf-8", errors="replace")
-        match = re.search(r"^quality_score:\s*(\d+)", content, re.MULTILINE)
-        if match:
-            return int(match.group(1))
+        return read_quality_score(content)
     except Exception:
-        pass
-    return 0
+        return 0
 
 
 def _clean_dead_links(markdown: str, valid_stems: set) -> str:

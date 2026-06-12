@@ -17,7 +17,10 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from src.services.asr_service import ASREngine
 
 logger = logging.getLogger("vidbrain.asr_engine_vulkan")
 
@@ -206,7 +209,7 @@ class ASREngineVulkan:
             )
 
         # 备份的 faster-whisper CPU 引擎（延迟加载）
-        self._cpu_fallback = None
+        self._cpu_fallback: ASREngine | None = None
 
     # ── 能力检测 ──
 
@@ -258,12 +261,18 @@ class ASREngineVulkan:
         # Step 1: 音频提取
         audio_path = _extract_audio(file_path)
 
+        # Guard: these are checked by vulkan_available but mypy cannot infer it
+        whisper_cli = self._whisper_cli
+        model_path = self._model_path
+        assert whisper_cli is not None, "whisper-cli not available in vulkan path"
+        assert model_path is not None, "GGML model not found in vulkan path"
+
         try:
             # Step 2: whisper.cpp 推理
             cmd = [
-                self._whisper_cli,
+                whisper_cli,
                 "-m",
-                self._model_path,
+                model_path,
                 "-f",
                 audio_path,
                 "-l",

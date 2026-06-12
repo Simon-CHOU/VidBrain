@@ -253,8 +253,7 @@ def suggest_update(
             logger.warning("LLM 更新建议失败 (尝试 %d/%d): %s", attempt, max_retries, str(e))
             if attempt < max_retries:
                 time.sleep(2 ** (attempt - 1))
-            else:
-                return []
+    return []
 
 
 def apply_update(vault_path: str, suggestion: dict) -> bool:

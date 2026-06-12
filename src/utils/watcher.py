@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
+from watchdog.observers.api import BaseObserver
 
 from src.models.config import LLMConfig, PipelineConfig
 from src.services.asr_service import ASREngine
@@ -135,7 +136,7 @@ def start_watcher(
     llm_config: LLMConfig,
     cfg: PipelineConfig,
     executor: ThreadPoolExecutor,
-) -> Observer:
+) -> BaseObserver:
     """启动 watchdog Observer，递归监听目录。"""
     event_handler = VideoFileHandler(db, asr_engine, llm_config, cfg, executor, input_dir)
     observer = Observer()

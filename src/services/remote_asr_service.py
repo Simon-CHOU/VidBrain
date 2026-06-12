@@ -235,7 +235,8 @@ class RemoteFirstASREngine:
                 logger.warning("远端 ASR 失败，回退本地 CPU: %s", exc)
 
         logger.info("使用本地 CPU ASR 回退: %s", file_path)
-        return self._local_cpu_engine.transcribe(file_path)
+        fallback_segments: list[dict[str, Any]] = self._local_cpu_engine.transcribe(file_path)
+        return fallback_segments
 
     def _run_health_checks_if_needed(self) -> bool:
         """在任务前按状态机执行健康检查或恢复探测。

@@ -21,11 +21,12 @@ import re
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from openai import OpenAI
 
 from src.models.config import LLMConfig
+from src.utils.frontmatter import read_quality_score
 
 logger = logging.getLogger("vidbrain.refiner")
 
@@ -47,10 +48,7 @@ def read_note(path: Path) -> dict[str, Any]:
     name = path.stem
     links = parse_links(content)
     # 尝试从 front-matter 读取质量评分
-    quality = 0
-    q_match = re.search(r"^quality_score:\s*(\d+)", content, re.MULTILINE)
-    if q_match:
-        quality = int(q_match.group(1))
+    quality = read_quality_score(content)
     return {
         "name": name,
         "content": content,
@@ -147,14 +145,14 @@ def _call_llm_batch(
                 "timeout": 60,
             }
             # DeepSeek 支持 response_format，OpenAI 兼容接口也支持
-            response = client.chat.completions.create(**kwargs)
+            response = client.chat.completions.create(**cast(dict[str, Any], kwargs))
             raw = response.choices[0].message.content or "{}"
             # 尝试从响应中提取 JSON（LLM 可能在 markdown 代码块中返回）
             json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
             if json_match:
                 raw = json_match.group(1)
             result = json.loads(raw)
-            suggestions = result.get("suggestions", [])
+            suggestions: list[dict[str, Any]] = result.get("suggestions", [])
             logger.info(
                 "LLM 批量建议完成: %d 篇笔记获得链接建议",
                 len(suggestions),
@@ -166,6 +164,7 @@ def _call_llm_batch(
                 time.sleep(2 ** (attempt - 1))
             else:
                 return []
+    return []
 
 
 def apply_suggestions(
@@ -267,7 +266,7 @@ def _extract_topics_llm(
                 if start >= 0 and end > start:
                     raw = raw[start : end + 1]
             result = json.loads(raw)
-            topics = result.get("topics", [])
+            topics: list[dict[str, Any]] = result.get("topics", [])
             logger.info("主题提取完成: %d 个主题", len(topics))
             return topics
         except Exception as e:
