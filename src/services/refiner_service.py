@@ -276,6 +276,7 @@ def _extract_topics_llm(
                 time.sleep(2 ** (attempt - 1))
             else:
                 return []
+    return []
 
 
 def _extract_topics_with_embedding(
